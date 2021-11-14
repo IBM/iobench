@@ -21,4 +21,13 @@
 #define compile_assert(__must_be__) ((void)sizeof(char[1 - 2*!(__must_be__)]))
 #define force_type(__var__, __forced__type__) compile_assert(__builtin_types_compatible_p(__forced__type__, typeof(__var__)))
 
+#define list_parent_struct(__child_p__, __type__, __child_node__) \
+({ \
+	__type__ *__res__; \
+	void *__entry__ = __child_p__; \
+	__entry__ -= __builtin_offsetof(__type__, __child_node__); \
+	__res__ = __entry__; \
+	__res__; \
+})
+
 #endif

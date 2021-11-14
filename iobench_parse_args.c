@@ -18,7 +18,7 @@ DECLARE_BFN
 
 #define usage() \
 do { \
-	ERROR("Use as %s [-bs block_size] [-qs queue_size]  [-fail-on-err] [ -seq ] [-hit-size value] [-t run_time_sec] [-write | -wp value] [ -engine dio|scsi|nvme ] dev_list]", prog_name); \
+	ERROR("Use as %s [-bs block_size] [-qs queue_size]  [-fail-on-err] [ -seq ] [-hit-size value] [-t run_time_sec] [-write | -wp value] [ -engine aio|aio_linux|scsi|nvme ] dev_list]", prog_name); \
 	return -1; \
 } while(0)
 
@@ -71,8 +71,10 @@ int io_bench_parse_args(int argc, char **argv, io_bench_params_t *params)
 		} else if (!strcmp(argv[0], "-engine")) {
 			if (params->engine != ENGINE_INVALID || argc == 1)
 				usage();
-			if (!strcmp(argv[1], "dio"))
-				params->engine = ENGINE_DIO;
+			if (!strcmp(argv[1], "aio"))
+				params->engine = ENGINE_AIO;
+			else if (!strcmp(argv[1], "aio_linux"))
+				params->engine = ENGINE_AIO_LINUX;
 			else if (!strcmp(argv[1], "scsi"))
 				params->engine = ENGINE_SCSI;
 			else if (!strcmp(argv[1], "nvme"))

@@ -224,7 +224,15 @@ int io_bench_requeue_io(io_bench_thr_ctx_t *ctx, io_ctx_t *io)
 	uint64_t stamp = get_uptime_us();
 	int rc;
 	update_io_stats(ctx, io, stamp);
+	if (unlikely(io->status)) {
+		ERROR("IO to offset %lu, device %s fails with code %d", io->offset, ctx->dev_name, io->status);
+		if (init_params.fail_on_err) {
+			rc = io->status;
+			goto done;
+		}
+	}
 	rc = submit_one_io(ctx, io, stamp);
+done:
 	if (unlikely(rc)) {
 		if (init_params.fail_on_err) {
 			global_ctx.failed = true;
@@ -240,7 +248,7 @@ static void *thread_func(void *arg)
 	int rc;
 	uint16_t i;
 	unsigned int idx = (unsigned long)(arg);
-	rc = io_eng->init_thread_ctx(&global_ctx.ctx_array[idx], &init_params);
+	rc = io_eng->init_thread_ctx(&global_ctx.ctx_array[idx], &init_params, idx);
 	if (rc) {
 		ERROR("Thread %u failed to init", idx);
 		pthread_kill(global_ctx.main_thread, SIGTERM);
@@ -345,6 +353,14 @@ int main(int argc, char *argv[])
 	rc = io_bench_parse_args(argc, argv, &init_params);
 	if (rc)
 		exit(1);
+	switch (init_params.engine) {
+		case ENGINE_AIO: io_eng = &aio_engine; break;
+#if 0
+		case ENGINE_NVNE: io_eng = &nvme_engine; break;
+		case ENGINE_SCSI: io_eng = &scsi_engine; break;
+#endif
+		default: ERROR("Unsupported IO engine"); exit(1); break;
+	}
 	rc = start_threads();
 	return rc;
 }

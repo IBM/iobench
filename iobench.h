@@ -18,7 +18,8 @@
 #include <stdbool.h>
 
 typedef enum {
-	ENGINE_DIO,
+	ENGINE_AIO,
+	ENGINE_AIO_LINUX,
 	ENGINE_SCSI,
 	ENGINE_NVNE,
 	ENGINE_INVALID,
@@ -45,7 +46,6 @@ typedef struct {
 } io_bench_params_t;
 
 typedef struct {
-	int fd;
 	uint64_t capacity;
 	uint64_t offset;
 	io_bench_stats_t write_stats;
@@ -57,11 +57,13 @@ typedef struct {
 	char *buf;
 	uint64_t start_stamp;
 	uint64_t offset;
+	int status;
 	bool write;
 } io_ctx_t;
 
 typedef struct {
-	int (*init_thread_ctx)(io_bench_thr_ctx_t **pctx, io_bench_params_t *params);
+	int (*init_thread_ctx)(io_bench_thr_ctx_t **pctx, io_bench_params_t *params, unsigned int dev_idx);
+	void (*destroy_thread_ctx)(io_bench_thr_ctx_t *ctx);
 	int (*poll_completions)(io_bench_thr_ctx_t *ctx, int n);
 	io_ctx_t *(*get_io_ctx)(io_bench_thr_ctx_t *ctx, uint16_t slot);
 	int (*queue_io)(io_bench_thr_ctx_t *ctx, io_ctx_t *io);
@@ -69,6 +71,8 @@ typedef struct {
 
 int io_bench_parse_args(int argc, char **argv, io_bench_params_t *params);
 int io_bench_requeue_io(io_bench_thr_ctx_t *ctx, io_ctx_t *io);
+
+extern io_eng_def_t aio_engine;
 
 #endif
 
