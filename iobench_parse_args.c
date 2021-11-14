@@ -43,16 +43,21 @@ int io_bench_parse_args(int argc, char **argv, io_bench_params_t *params)
 			if (params->run_time || argc == 1 || sscanf(argv[1], "%u", &params->run_time) != 1)
 				usage();
 		} else if (!strcmp(argv[0], "-hit-size")) {
+			char tail[strlen(argv[1])+1];
 			if (params->hit_size || argc == 1)
 				usage();
-			if (sscanf(argv[1], "%luG", &params->hit_size) == 1)
-				params->hit_size <<= 30;
-			else if (sscanf(argv[1], "%luM", &params->hit_size) == 1)
-				params->hit_size <<= 20;
-			else if (sscanf(argv[1], "%luK", &params->hit_size) == 1)
-				params->hit_size <<= 10;
-			else if (sscanf(argv[1], "%lu", &params->hit_size) != 1)
+			if (sscanf(argv[1], "%lu%s",  &params->hit_size, tail) == 2) {
+				if (!strcmp(tail, "G"))
+					params->hit_size <<= 30;
+				else if (!strcmp(tail, "M"))
+					params->hit_size <<= 20;
+				else if (!strcmp(tail, "K"))
+					params->hit_size <<= 10;
+				else
+					usage();
+			} else if (sscanf(argv[1], "%lu",  &params->hit_size) != 1) {
 				usage();
+			}
 		} else if (!strcmp(argv[0], "-wp")) {
 			if (params->wp || argc == 1 || sscanf(argv[1], "%hhu", &params->wp) != 1)
 				usage();
@@ -95,5 +100,11 @@ int io_bench_parse_args(int argc, char **argv, io_bench_params_t *params)
 		params->bs = 4096;
 	if (!params->qs)
 		params->qs = 16;
+	if (params->engine == ENGINE_INVALID)
+		INFO("Falling back to Linux DIO AIO");
+	if (params->hit_size && (params->hit_size < params->bs)) {
+		ERROR("Invalid hit size -- cannot be smaller than IO size");
+		usage();
+	}
 	return 0;
 }
