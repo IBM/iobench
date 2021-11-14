@@ -360,6 +360,7 @@ int main(int argc, char *argv[])
 		exit(1);
 	switch (init_params.engine) {
 		case ENGINE_AIO: io_eng = &aio_engine; break;
+		case ENGINE_AIO_LINUX: io_eng = &aio_linux_engine; break;
 #if 0
 		case ENGINE_NVNE: io_eng = &nvme_engine; break;
 		case ENGINE_SCSI: io_eng = &scsi_engine; break;

@@ -73,6 +73,7 @@ int io_bench_parse_args(int argc, char **argv, io_bench_params_t *params);
 int io_bench_requeue_io(io_bench_thr_ctx_t *ctx, io_ctx_t *io);
 
 extern io_eng_def_t aio_engine;
+extern io_eng_def_t aio_linux_engine;
 
 #endif
 
