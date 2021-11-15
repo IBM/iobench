@@ -53,7 +53,17 @@ typedef struct {
 	void *buf_head;
 	uint32_t bs;
 	uint32_t qs;
-	int fd;
+	uint32_t slot;
+	bool rr;
+	union {
+		struct {
+			int fd;
+		};
+		struct {
+			const int *fds;
+			char **dev_names;
+		};
+	};
 	io_bench_thr_ctx_t iobench_ctx;
 } aio_linux_thr_ctx_t;
 
@@ -87,8 +97,10 @@ static void aio_linux_destroy_thread_ctx(io_bench_thr_ctx_t *ctx)
 		free(pctx->ioctx);
 	if (pctx->iocbs)
 		free(pctx->iocbs);
-	if (pctx->fd != -1)
+	if (!pctx->rr && pctx->fd != -1)
 		close(pctx->fd);
+	if (pctx->rr && pctx->fds)
+		free((void *)pctx->fds);
 }
 
 static int aio_linux_init_thread_ctx(io_bench_thr_ctx_t **pctx, io_bench_params_t *params, unsigned int dev_idx)
@@ -96,6 +108,22 @@ static int aio_linux_init_thread_ctx(io_bench_thr_ctx_t **pctx, io_bench_params_
 	aio_linux_thr_ctx_t *aio_linux_thr_ctx;
 	size_t map_size;
 	unsigned int i;
+	static int *fds = NULL;
+	int fd;
+	static pthread_once_t once_control = PTHREAD_ONCE_INIT;
+	void init_dio(void)
+	{
+		if (!params->rr)
+			return;
+		fds = calloc(params->ndevs, sizeof(*fds));
+		ASSERT(fds);
+		memset(fds, 0xff, sizeof(int) * params->ndevs);
+		for (i = 0; i < params->ndevs; i++) {
+			fds[i] = open(params->devices[i], O_RDWR|O_DIRECT);
+			ASSERT(fds[i] >= 0);
+		}
+	}
+	pthread_once(&once_control, &init_dio);
 
 	*pctx = NULL;
 	aio_linux_thr_ctx = calloc(1, sizeof(*aio_linux_thr_ctx));
@@ -106,7 +134,10 @@ static int aio_linux_init_thread_ctx(io_bench_thr_ctx_t **pctx, io_bench_params_
 
 	aio_linux_thr_ctx->qs = params->qs;
 	aio_linux_thr_ctx->bs = params->bs;
-	aio_linux_thr_ctx->fd = -1;
+	aio_linux_thr_ctx->slot = dev_idx;
+	aio_linux_thr_ctx->rr = params->rr;
+	if (!params->rr)
+		aio_linux_thr_ctx->fd = -1;
 
 	if (io_setup(aio_linux_thr_ctx->qs, &aio_linux_thr_ctx->handle)) {
 		ERROR("Failed to init aio handle");
@@ -134,16 +165,22 @@ static int aio_linux_init_thread_ctx(io_bench_thr_ctx_t **pctx, io_bench_params_
 		aio_linux_destroy_thread_ctx(&aio_linux_thr_ctx->iobench_ctx);
 		return -ENOMEM;
 	}
-	aio_linux_thr_ctx->fd = open(params->devices[dev_idx], O_RDWR|O_DIRECT);
-	if (aio_linux_thr_ctx->fd < 0) {
-		ERROR("Failed to open %s", params->devices[dev_idx]);
-		aio_linux_destroy_thread_ctx(&aio_linux_thr_ctx->iobench_ctx);
-		return -ENOMEM;
+	if (!params->rr) {
+		aio_linux_thr_ctx->fd = open(params->devices[dev_idx], O_RDWR|O_DIRECT);
+		if (aio_linux_thr_ctx->fd < 0) {
+			ERROR("Failed to open %s", params->devices[dev_idx]);
+			aio_linux_destroy_thread_ctx(&aio_linux_thr_ctx->iobench_ctx);
+			return -ENOMEM;
+		}
+		fd = aio_linux_thr_ctx->fd;
+	} else {
+		aio_linux_thr_ctx->fds = fds;
+		aio_linux_thr_ctx->dev_names = params->devices;
+		fd = fds[dev_idx];
 	}
-	aio_linux_thr_ctx->iobench_ctx.dev_name = params->devices[dev_idx];
-	aio_linux_thr_ctx->iobench_ctx.capacity = lseek(aio_linux_thr_ctx->fd, 0, SEEK_END);
+	aio_linux_thr_ctx->iobench_ctx.capacity = lseek(fd, 0, SEEK_END);
 	if (aio_linux_thr_ctx->iobench_ctx.capacity == -1ULL) {
-		ERROR("Failed to determine capacity for %s", aio_linux_thr_ctx->iobench_ctx.dev_name);
+		ERROR("Failed to determine capacity for %s", params->devices[dev_idx]);
 		aio_linux_destroy_thread_ctx(&aio_linux_thr_ctx->iobench_ctx);
 		return -ENOMEM;
 	}
@@ -151,7 +188,7 @@ static int aio_linux_init_thread_ctx(io_bench_thr_ctx_t **pctx, io_bench_params_
 	for (i = 0; i < aio_linux_thr_ctx->qs; i++) {
 		aio_linux_thr_ctx->iocbs[i] = &aio_linux_thr_ctx->ioctx[i].iocb;
 		aio_linux_thr_ctx->ioctx[i].ioctx.buf = aio_linux_thr_ctx->buf_head + ((size_t)aio_linux_thr_ctx->bs) * i;
-		io_prep_pread(&aio_linux_thr_ctx->ioctx[i].iocb, aio_linux_thr_ctx->fd, aio_linux_thr_ctx->ioctx[i].ioctx.buf,  aio_linux_thr_ctx->bs, 0);
+		io_prep_pread(&aio_linux_thr_ctx->ioctx[i].iocb, fd, aio_linux_thr_ctx->ioctx[i].ioctx.buf,  aio_linux_thr_ctx->bs, 0);
 	}
 	*pctx = &aio_linux_thr_ctx->iobench_ctx;
 	return 0;
@@ -190,12 +227,14 @@ static int aio_linux_queue_io(io_bench_thr_ctx_t *ctx, io_ctx_t *io)
 	aio_linux_thr_ctx_t *pctx = U_2_P(ctx);
 	struct iocb *io_list[1] = { &pio->iocb };
 	int rc;
+	int fd;
 
 
+	fd = (pctx->rr) ?  pctx->fds[io->dev_idx] : pctx->fd;
 	if (!io->write)
-		io_prep_pread(&pio->iocb, pctx->fd, io->buf, pctx->bs, io->offset);
+		io_prep_pread(&pio->iocb, fd, io->buf, pctx->bs, io->offset);
 	else
-		io_prep_pwrite(&pio->iocb, pctx->fd, io->buf, pctx->bs, io->offset);
+		io_prep_pwrite(&pio->iocb, fd, io->buf, pctx->bs, io->offset);
 
 	rc = io_submit(pctx->handle, 1, io_list);
 	return (rc > 0) ? 0 : (rc < 0) ? rc : -1;

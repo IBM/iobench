@@ -184,17 +184,19 @@ static void term_handler(int signo)
 	exit(global_ctx.failed);
 }
 
-static inline uint64_t choose_random_offset(io_bench_thr_ctx_t *thread_ctx)
+static inline uint64_t choose_random_offset(io_bench_thr_ctx_t *thread_ctx, unsigned int dev_idx)
 {
 	uint64_t result;
 
 	if (init_params.seq) {
-			result = thread_ctx->offset;
-			thread_ctx->offset += init_params.bs;
-			if (thread_ctx->offset >= thread_ctx->capacity)
-				thread_ctx->offset = 0;
+			uint64_t new_value;
+			result = global_ctx.ctx_array[dev_idx]->offset;
+			new_value = result + init_params.bs;
+			if (new_value >= global_ctx.ctx_array[dev_idx]->capacity)
+				new_value = 0;
+			global_ctx.ctx_array[dev_idx]->offset = new_value;
 	} else {
-		result = ((double)rand() * ((thread_ctx->capacity - init_params.bs) / init_params.bs)) / ((unsigned int)RAND_MAX + 1);
+		result = ((double)rand() * ((global_ctx.ctx_array[dev_idx]->capacity - init_params.bs) / init_params.bs)) / ((unsigned int)RAND_MAX + 1);
 		result *= init_params.bs;
 	}
 	return result;
@@ -212,11 +214,18 @@ static inline bool is_write_io(void)
 	return  (val < init_params.wp);
 }
 
+static inline unsigned int choose_dev_idx(void)
+{
+	unsigned int res = ((double)rand() * init_params.ndevs) / ((unsigned int)RAND_MAX + 1);
+	return res;
+}
+
 static int submit_one_io(io_bench_thr_ctx_t *ctx, io_ctx_t *io, uint64_t stamp)
 {
 	io->start_stamp = stamp;
-	io->offset = choose_random_offset(ctx);
 	io->write = is_write_io();
+	io->dev_idx = (init_params.rr) ? choose_dev_idx() : ctx->thr_idx;
+	io->offset = choose_random_offset(ctx, io->dev_idx);
 	return io_eng->queue_io(ctx, io);
 }
 
@@ -226,7 +235,7 @@ int io_bench_requeue_io(io_bench_thr_ctx_t *ctx, io_ctx_t *io)
 	int rc;
 	update_io_stats(ctx, io, stamp);
 	if (unlikely(io->status)) {
-		ERROR("IO to offset %lu, device %s fails with code %d", io->offset, ctx->dev_name, io->status);
+		ERROR("IO to offset %lu, device %s fails with code %d", io->offset, init_params.devices[io->dev_idx], io->status);
 		if (init_params.fail_on_err) {
 			rc = io->status;
 			goto done;
@@ -260,6 +269,7 @@ static void *thread_func(void *arg)
 		pthread_kill(global_ctx.main_thread, SIGTERM);
 		pthread_exit(NULL);
 	}
+	global_ctx.ctx_array[idx]->thr_idx = idx;
 
 	if (init_params.hit_size && init_params.hit_size < global_ctx.ctx_array[idx]->capacity)
 		global_ctx.ctx_array[idx]->capacity = init_params.hit_size;

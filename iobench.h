@@ -39,6 +39,7 @@ typedef struct {
 	uint16_t qs;
 	bool fail_on_err;
 	bool seq;
+	bool rr;
 	uint8_t wp;
 	io_eng_t engine;
 	char **devices;
@@ -52,13 +53,14 @@ typedef struct {
 	uint64_t offset;
 	io_bench_stats_t write_stats;
 	io_bench_stats_t read_stats;
-	const char *dev_name;
+	uint16_t thr_idx;
 } io_bench_thr_ctx_t;
 
 typedef struct {
 	char *buf;
 	uint64_t start_stamp;
 	uint64_t offset;
+	uint16_t dev_idx;
 	int status;
 	bool write;
 } io_ctx_t;
