@@ -34,7 +34,7 @@ int io_bench_parse_args(int argc, char **argv, io_bench_params_t *params)
 	while (argc) {
 		int dec = 2;
 		if (!strcmp(argv[0], "-bs")) {
-			if (params->bs || argc == 1 || sscanf(argv[1], "%hu", &params->bs) != 1)
+			if (params->bs || argc == 1 || sscanf(argv[1], "%u", &params->bs) != 1)
 				usage();
 		} else if (!strcmp(argv[0], "-qs")) {
 			if (params->qs || argc == 1 || sscanf(argv[1], "%hu", &params->qs) != 1)

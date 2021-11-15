@@ -124,7 +124,7 @@ static void update_process_io_stats(uint64_t stamp, bool final)
 			read_stats.min_lat = 0;
 		if (write_stats.min_lat == -1ULL)
 			write_stats.min_lat = 0;
-		INFO_NOPFX("%8.2lf %8.2lf %9.2lf %9.2lf %9.2lf %6lu %6lu %9.2lf %6lu %6lu",
+		INFO_NOPFX("%8.2lf %8.2lf %9.2lf %9.2lf %11.2lf %8lu %8lu %11.2lf %8lu %8lu",
 			((read_stats.iops - global_ctx.read_stats.iops) * 1000.0) / (stamp - global_ctx.int_start),
 			((write_stats.iops - global_ctx.write_stats.iops) * 1000.0) / (stamp - global_ctx.int_start),
 			(read_stats.iops - global_ctx.read_stats.iops) * 0.953674 * init_params.bs / (stamp - global_ctx.int_start),
@@ -142,8 +142,8 @@ static void update_process_io_stats(uint64_t stamp, bool final)
 			global_ctx.read_stats.min_lat = 0;
 		if (global_ctx.write_stats.min_lat == -1ULL)
 			global_ctx.write_stats.min_lat = 0;
-		INFO_NOPFX("-------------------------------------------------------------------------------------");
-		INFO_NOPFX("%8.2lf %8.2lf %9.2lf %9.2lf %9.2lf %6lu %6lu %9.2lf %6lu %6lu",
+		INFO_NOPFX("-------------------------------------------------------------------------------------------------");
+		INFO_NOPFX("%8.2lf %8.2lf %9.2lf %9.2lf %11.2lf %8lu %8lu %11.2lf %8lu %8lu",
 			((global_ctx.read_stats.iops) * 1000.0) / (stamp - global_ctx.start),
 			((global_ctx.write_stats.iops) * 1000.0) / (stamp - global_ctx.start),
 			(global_ctx.read_stats.iops) * 0.953674 * init_params.bs / (stamp - global_ctx.start),
@@ -255,10 +255,8 @@ static void *thread_func(void *arg)
 		pthread_exit(NULL);
 	}
 
-	if (init_params.hit_size && init_params.hit_size < global_ctx.ctx_array[idx]->capacity) {
+	if (init_params.hit_size && init_params.hit_size < global_ctx.ctx_array[idx]->capacity)
 		global_ctx.ctx_array[idx]->capacity = init_params.hit_size;
-		INFO("Decreasting capacity to %lu to simulate cache hit", global_ctx.ctx_array[idx]->capacity);
-	}
 	global_ctx.ctx_array[idx]->capacity =  (global_ctx.ctx_array[idx]->capacity / init_params.bs) * init_params.bs;
 	pthread_mutex_lock(&global_ctx.init_mutex);
 	global_ctx.done_init++;
@@ -330,14 +328,15 @@ static int start_threads(void)
 	pthread_mutex_unlock(&global_ctx.init_mutex);
 
 	pthread_mutex_lock(&global_ctx.run_mutex);
+	global_ctx.read_stats.min_lat = global_ctx.write_stats.min_lat = -1ULL;
 	global_ctx.start = global_ctx.int_start = get_uptime_us();
 	global_ctx.may_run = true;
 	pthread_cond_broadcast(&global_ctx.run_cond);
 	pthread_mutex_unlock(&global_ctx.run_mutex);
 
-	stop_stamp = (init_params.run_time) ? (get_uptime_us() + init_params.run_time) : -1ULL;
-	INFO_NOPFX(" RdKIOPS  WrKIOPS  Rd MiB/s  Wr MiB/s    Rd Lat   MnRL   MxRL    Wr Lat   MnWL   MxWL");
-	INFO_NOPFX("-------------------------------------------------------------------------------------");
+	stop_stamp = (init_params.run_time) ? (get_uptime_us() + 1000000ULL * init_params.run_time) : -1ULL;
+	INFO_NOPFX(" RdKIOPS  WrKIOPS  Rd MiB/s  Wr MiB/s      Rd Lat  MinRLat  MaxRLat      Wr Lat  MinWLat  MaxWLat");
+	INFO_NOPFX("-------------------------------------------------------------------------------------------------");
 
 	while (stamp < stop_stamp) {
 		usleep(SLEEP_INT_MS * 1000);

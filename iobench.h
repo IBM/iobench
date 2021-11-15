@@ -35,7 +35,7 @@ typedef struct {
 typedef struct {
 	uint64_t hit_size;
 	uint32_t run_time;
-	uint16_t bs;
+	uint32_t bs;
 	uint16_t qs;
 	bool fail_on_err;
 	bool seq;
