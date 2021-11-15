@@ -18,7 +18,7 @@ DECLARE_BFN
 
 #define usage() \
 do { \
-	ERROR("Use as %s [-bs block_size] [-qs queue_size]  [-fail-on-err] [ -seq ] [-hit-size value] [-t run_time_sec] [-write | -wp value] [ -engine aio|aio_linux|scsi|nvme ] dev_list]", prog_name); \
+	ERROR("Use as %s [-bs block_size] [-qs queue_size]  [-fail-on-err] [ -seq ] [-hit-size value] [-t run_time_sec] [-numa |-cpuset set] [-write | -wp value] [ -engine aio|aio_linux|scsi|nvme ] dev_list]", prog_name); \
 	return -1; \
 } while(0)
 
@@ -61,6 +61,10 @@ int io_bench_parse_args(int argc, char **argv, io_bench_params_t *params)
 		} else if (!strcmp(argv[0], "-wp")) {
 			if (params->wp || argc == 1 || sscanf(argv[1], "%hhu", &params->wp) != 1)
 				usage();
+		} else if (!strcmp(argv[0], "-cpuset")) {
+			if (params->cpuset || params->use_numa || argc == 1)
+				usage();
+			params->cpuset = argv[1];
 		} else if (!strcmp(argv[0], "-fail-on-err")) {
 			if (params->fail_on_err)
 				usage();
@@ -73,6 +77,10 @@ int io_bench_parse_args(int argc, char **argv, io_bench_params_t *params)
 			if (params->wp)
 				usage();
 			params->wp = 100; dec = 1;
+		} else if (!strcmp(argv[0], "-numa")) {
+			if (params->use_numa || params->cpuset)
+				usage();
+			params->use_numa = true; dec = 1;
 		} else if (!strcmp(argv[0], "-engine")) {
 			if (params->engine != ENGINE_INVALID || argc == 1)
 				usage();

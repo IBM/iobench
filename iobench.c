@@ -15,6 +15,7 @@
 DECLARE_BFN
 #include "iobench.h"
 #include "compiler.h"
+#include "core_affinity.h"
 #include <stdlib.h>
 #include <unistd.h>
 #include <pthread.h>
@@ -247,7 +248,12 @@ static void *thread_func(void *arg)
 {
 	int rc;
 	uint16_t i;
-	unsigned int idx = (unsigned long)(arg);
+	unsigned int idx = (unsigned long)(arg) & 0xffff;
+	unsigned int cpu = (unsigned long)(arg) >> 16;
+
+	if (cpu < 0xffff)
+		set_thread_affinity(cpu);
+
 	rc = io_eng->init_thread_ctx(&global_ctx.ctx_array[idx], &init_params, idx);
 	if (rc) {
 		ERROR("Thread %u failed to init", idx);
@@ -295,7 +301,14 @@ static int start_threads(void)
 	unsigned int i;
 	uint64_t stop_stamp, stamp = 0;
 	struct sigaction act = {{0}};
+	unsigned int cpu = -1U;
+	struct numa_cpu_set *set = NULL;
 
+	if (init_params.cpuset) {
+		set = alloca(get_numa_set_size());
+		if (init_cpu_set_from_str(set, init_params.cpuset, 0))
+			set = NULL;
+	}
 	act.sa_handler = term_handler;
 	if (sigaction(SIGTERM, &act, NULL)) {
 		ERROR("Failed to setup SIGTERM handler");
@@ -314,7 +327,15 @@ static int start_threads(void)
 		return -ENOMEM;
 	};
 	for (i = 0; i < init_params.ndevs; i++) {
-		if (pthread_create(&global_ctx.threads[i], NULL, thread_func, (void *)(unsigned long)i)) {
+		unsigned long val = i;
+		if (set) {
+			cpu = get_next_cpu(set);
+			INFO("Selected CPU %u", cpu);
+		} else if (init_params.use_numa) {
+			cpu = get_next_numa_rr_cpu();
+		}
+		val |= (cpu << 16);
+		if (pthread_create(&global_ctx.threads[i], NULL, thread_func, (void *)val)) {
 			global_ctx.threads[i] = 0;
 			ERROR("Cannot create thread %u", i);
 			kill_all_threads();

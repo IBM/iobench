@@ -43,6 +43,8 @@ typedef struct {
 	io_eng_t engine;
 	char **devices;
 	unsigned int ndevs;
+	bool use_numa;
+	char *cpuset;
 } io_bench_params_t;
 
 typedef struct {
