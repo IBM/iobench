@@ -20,6 +20,7 @@
 typedef enum {
 	ENGINE_AIO,
 	ENGINE_AIO_LINUX,
+	ENGINE_DIO,
 	ENGINE_SCSI,
 	ENGINE_NVNE,
 	ENGINE_INVALID,
@@ -76,9 +77,11 @@ typedef struct {
 
 int io_bench_parse_args(int argc, char **argv, io_bench_params_t *params);
 int io_bench_requeue_io(io_bench_thr_ctx_t *ctx, io_ctx_t *io);
+void io_bench_complete_and_prep_io(io_bench_thr_ctx_t *ctx, io_ctx_t *io);
 
 extern io_eng_def_t aio_engine;
 extern io_eng_def_t aio_linux_engine;
+extern io_eng_def_t dio_engine;
 
 #endif
 

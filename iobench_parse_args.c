@@ -18,7 +18,7 @@ DECLARE_BFN
 
 #define usage() \
 do { \
-	ERROR("Use as %s [-bs block_size] [-qs queue_size]  [-fail-on-err] [ -seq ] [-rr] [-hit-size value] [-t run_time_sec] [-numa |-cpuset set] [-write | -wp value] [ -engine aio|aio_linux|scsi|nvme ] dev_list]", prog_name); \
+	ERROR("Use as %s [-bs block_size] [-qs queue_size]  [-fail-on-err] [ -seq ] [-rr] [-hit-size value] [-t run_time_sec] [-numa |-cpuset set] [-write | -wp value] [ -engine aio|aio_linux|scsi|nvme|dio ] dev_list]", prog_name); \
 	return -1; \
 } while(0)
 
@@ -92,6 +92,8 @@ int io_bench_parse_args(int argc, char **argv, io_bench_params_t *params)
 				params->engine = ENGINE_AIO;
 			else if (!strcmp(argv[1], "aio_linux"))
 				params->engine = ENGINE_AIO_LINUX;
+			else if (!strcmp(argv[1], "dio"))
+				params->engine = ENGINE_DIO;
 			else if (!strcmp(argv[1], "scsi"))
 				params->engine = ENGINE_SCSI;
 			else if (!strcmp(argv[1], "nvme"))
@@ -105,6 +107,10 @@ int io_bench_parse_args(int argc, char **argv, io_bench_params_t *params)
 		}
 		argc -= dec;
 		argv += dec;
+	}
+	if (params->rr && params->engine == ENGINE_DIO) {
+		ERROR("DIO engine cannot work in RR mode");
+		return -1;
 	}
 	if (!params->devices)
 		usage();

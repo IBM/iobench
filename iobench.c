@@ -175,7 +175,14 @@ static void update_io_stats(io_bench_thr_ctx_t *ctx, io_ctx_t *io, uint64_t stam
 static void term_handler(int signo)
 {
 	if (pthread_self() != global_ctx.main_thread) {
+		unsigned int i;
 		pthread_kill(global_ctx.main_thread, SIGTERM);
+		for (i = 0; i < init_params.ndevs; i++) {
+			if (global_ctx.threads[i] == pthread_self()) {
+				io_eng->destroy_thread_ctx(global_ctx.ctx_array[i]);
+				break;
+			}
+		}
 		pthread_exit(NULL);
 	}
 	kill_all_threads();
@@ -221,13 +228,25 @@ static inline unsigned int choose_dev_idx(void)
 	return res;
 }
 
-static int submit_one_io(io_bench_thr_ctx_t *ctx, io_ctx_t *io, uint64_t stamp)
+static void prep_one_io(io_bench_thr_ctx_t *ctx, io_ctx_t *io, uint64_t stamp)
 {
 	io->start_stamp = stamp;
 	io->write = is_write_io();
 	io->dev_idx = (init_params.rr) ? choose_dev_idx() : ctx->thr_idx;
 	io->offset = choose_random_offset(ctx, io);
+}
+
+static int submit_one_io(io_bench_thr_ctx_t *ctx, io_ctx_t *io, uint64_t stamp)
+{
+	prep_one_io(ctx, io, stamp);
 	return io_eng->queue_io(ctx, io);
+}
+
+static void handle_thread_failure(void)
+{
+	global_ctx.failed = true;
+	pthread_kill(global_ctx.main_thread, SIGTERM);
+	pthread_exit(NULL);
 }
 
 int io_bench_requeue_io(io_bench_thr_ctx_t *ctx, io_ctx_t *io)
@@ -245,13 +264,25 @@ int io_bench_requeue_io(io_bench_thr_ctx_t *ctx, io_ctx_t *io)
 	rc = submit_one_io(ctx, io, stamp);
 done:
 	if (unlikely(rc)) {
-		if (init_params.fail_on_err) {
-			global_ctx.failed = true;
-			pthread_kill(global_ctx.main_thread, SIGTERM);
-			pthread_exit(NULL);
-		}
+		if (init_params.fail_on_err)
+			handle_thread_failure();
 	}
 	return rc;
+}
+
+void io_bench_complete_and_prep_io(io_bench_thr_ctx_t *ctx, io_ctx_t *io)
+{
+	static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+	uint64_t stamp = get_uptime_us();
+	pthread_mutex_lock(&lock);
+	update_io_stats(ctx, io, stamp);
+	prep_one_io(ctx, io, stamp);
+	pthread_mutex_unlock(&lock);
+	if (unlikely(io->status)) {
+		ERROR("IO to offset %lu, device %s fails with code %d", io->offset, init_params.devices[io->dev_idx], io->status);
+		if (init_params.fail_on_err)
+			handle_thread_failure();
+	}
 }
 
 static void *thread_func(void *arg)
@@ -267,8 +298,7 @@ static void *thread_func(void *arg)
 	rc = io_eng->init_thread_ctx(&global_ctx.ctx_array[idx], &init_params, idx);
 	if (rc) {
 		ERROR("Thread %u failed to init", idx);
-		pthread_kill(global_ctx.main_thread, SIGTERM);
-		pthread_exit(NULL);
+		handle_thread_failure();
 	}
 	global_ctx.ctx_array[idx]->thr_idx = idx;
 
@@ -297,11 +327,8 @@ static void *thread_func(void *arg)
 		io_ctx->slot_idx = i;
 		rc = submit_one_io(global_ctx.ctx_array[idx], io_ctx, get_uptime_us());
 		if (unlikely(rc)) {
-			if (init_params.fail_on_err) {
-				global_ctx.failed = true;
-				pthread_kill(global_ctx.main_thread, SIGTERM);
-				pthread_exit(NULL);
-			}
+			if (init_params.fail_on_err)
+				handle_thread_failure();
 		}
 	}
 	while (1) {
@@ -395,6 +422,7 @@ int main(int argc, char *argv[])
 	switch (init_params.engine) {
 		case ENGINE_AIO: io_eng = &aio_engine; break;
 		case ENGINE_AIO_LINUX: io_eng = &aio_linux_engine; break;
+		case ENGINE_DIO: io_eng = &dio_engine; break;
 #if 0
 		case ENGINE_NVNE: io_eng = &nvme_engine; break;
 		case ENGINE_SCSI: io_eng = &scsi_engine; break;
