@@ -61,6 +61,7 @@ typedef struct {
 	uint64_t start_stamp;
 	uint64_t offset;
 	uint16_t dev_idx;
+	uint16_t slot_idx;
 	int status;
 	bool write;
 } io_ctx_t;

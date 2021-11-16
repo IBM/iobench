@@ -184,20 +184,21 @@ static void term_handler(int signo)
 	exit(global_ctx.failed);
 }
 
-static inline uint64_t choose_random_offset(io_bench_thr_ctx_t *thread_ctx, unsigned int dev_idx)
+static inline uint64_t choose_random_offset(io_bench_thr_ctx_t *thread_ctx, io_ctx_t *io)
 {
 	uint64_t result;
 
 	if (init_params.seq) {
 			uint64_t new_value;
-			result = global_ctx.ctx_array[dev_idx]->offset;
+			result = global_ctx.ctx_array[io->dev_idx]->offset;
 			new_value = result + init_params.bs;
-			if (new_value >= global_ctx.ctx_array[dev_idx]->capacity)
+			if (new_value >= global_ctx.ctx_array[io->dev_idx]->capacity)
 				new_value = 0;
-			global_ctx.ctx_array[dev_idx]->offset = new_value;
+			global_ctx.ctx_array[io->dev_idx]->offset = new_value;
 	} else {
-		result = ((double)rand() * ((global_ctx.ctx_array[dev_idx]->capacity - init_params.bs) / init_params.bs)) / ((unsigned int)RAND_MAX + 1);
+		result = ((double)rand() * ((global_ctx.ctx_array[io->dev_idx]->capacity) / init_params.bs)) / ((unsigned int)RAND_MAX + 1);
 		result *= init_params.bs;
+		result += ((global_ctx.ctx_array[io->dev_idx]->capacity) * io->slot_idx);
 	}
 	return result;
 }
@@ -225,7 +226,7 @@ static int submit_one_io(io_bench_thr_ctx_t *ctx, io_ctx_t *io, uint64_t stamp)
 	io->start_stamp = stamp;
 	io->write = is_write_io();
 	io->dev_idx = (init_params.rr) ? choose_dev_idx() : ctx->thr_idx;
-	io->offset = choose_random_offset(ctx, io->dev_idx);
+	io->offset = choose_random_offset(ctx, io);
 	return io_eng->queue_io(ctx, io);
 }
 
@@ -274,6 +275,8 @@ static void *thread_func(void *arg)
 	if (init_params.hit_size && init_params.hit_size < global_ctx.ctx_array[idx]->capacity)
 		global_ctx.ctx_array[idx]->capacity = init_params.hit_size;
 	global_ctx.ctx_array[idx]->capacity =  (global_ctx.ctx_array[idx]->capacity / init_params.bs) * init_params.bs;
+	if (!init_params.seq)
+		global_ctx.ctx_array[idx]->capacity /= init_params.qs;
 	pthread_mutex_lock(&global_ctx.init_mutex);
 	global_ctx.done_init++;
 	if (global_ctx.done_init == init_params.ndevs)
@@ -291,6 +294,7 @@ static void *thread_func(void *arg)
 	for (i = 0; i < init_params.qs; i++) {
 		io_ctx_t *io_ctx = io_eng->get_io_ctx(global_ctx.ctx_array[idx], i);
 		ASSERT(io_ctx);
+		io_ctx->slot_idx = i;
 		rc = submit_one_io(global_ctx.ctx_array[idx], io_ctx, get_uptime_us());
 		if (unlikely(rc)) {
 			if (init_params.fail_on_err) {
