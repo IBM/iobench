@@ -203,14 +203,14 @@ static inline uint64_t choose_random_offset(io_bench_thr_ctx_t *thread_ctx, io_c
 				new_value = 0;
 			global_ctx.ctx_array[io->dev_idx]->offset = new_value;
 	} else {
-		result = ((double)rand() * ((global_ctx.ctx_array[io->dev_idx]->capacity) / init_params.bs)) / ((unsigned int)RAND_MAX + 1);
+		result = ((double)rand_r(&thread_ctx->seed) * ((global_ctx.ctx_array[io->dev_idx]->capacity) / init_params.bs)) / ((unsigned int)RAND_MAX + 1);
 		result *= init_params.bs;
 		result += ((global_ctx.ctx_array[io->dev_idx]->capacity) * io->slot_idx);
 	}
 	return result;
 }
 
-static inline bool is_write_io(void)
+static inline bool is_write_io(io_bench_thr_ctx_t *thread_ctx)
 {
 	if (!init_params.wp)
 		return false;
@@ -218,21 +218,21 @@ static inline bool is_write_io(void)
 	if (init_params.wp == 100)
 		return true;
 
-	uint32_t val = ((double)rand() * 100) / ((unsigned int)RAND_MAX + 1);
+	uint32_t val = ((double)rand_r(&thread_ctx->seed) * 100) / ((unsigned int)RAND_MAX + 1);
 	return  (val < init_params.wp);
 }
 
-static inline unsigned int choose_dev_idx(void)
+static inline unsigned int choose_dev_idx(io_bench_thr_ctx_t *thread_ctx)
 {
-	unsigned int res = ((double)rand() * init_params.ndevs) / ((unsigned int)RAND_MAX + 1);
+	unsigned int res = ((double)rand_r(&thread_ctx->seed) * init_params.ndevs) / ((unsigned int)RAND_MAX + 1);
 	return res;
 }
 
 static void prep_one_io(io_bench_thr_ctx_t *ctx, io_ctx_t *io, uint64_t stamp)
 {
 	io->start_stamp = stamp;
-	io->write = is_write_io();
-	io->dev_idx = (init_params.rr) ? choose_dev_idx() : ctx->thr_idx;
+	io->write = is_write_io(ctx);
+	io->dev_idx = (init_params.rr) ? choose_dev_idx(ctx) : ctx->thr_idx;
 	io->offset = choose_random_offset(ctx, io);
 }
 
@@ -301,6 +301,7 @@ static void *thread_func(void *arg)
 		handle_thread_failure();
 	}
 	global_ctx.ctx_array[idx]->thr_idx = idx;
+	 global_ctx.ctx_array[idx]->seed = get_uptime_us() + idx;
 
 	if (init_params.hit_size && init_params.hit_size < global_ctx.ctx_array[idx]->capacity)
 		global_ctx.ctx_array[idx]->capacity = init_params.hit_size;

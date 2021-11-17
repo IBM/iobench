@@ -54,6 +54,7 @@ typedef struct {
 	uint64_t offset;
 	io_bench_stats_t write_stats;
 	io_bench_stats_t read_stats;
+	unsigned int seed;
 	uint16_t thr_idx;
 } io_bench_thr_ctx_t;
 
