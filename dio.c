@@ -35,7 +35,7 @@ static int dio_queue_io(io_bench_thr_ctx_t *ctx, io_ctx_t *io);
 
 io_eng_def_t dio_engine = {
 	.init_thread_ctx = &dio_init_thread_ctx,
-	.destroy_thread_ctx = &dio_destroy_thread_ctx,
+	.stop_thread_ctx = &dio_destroy_thread_ctx,
 	.poll_completions = &dio_poll_completions,
 	.get_io_ctx = &dio_get_io_ctx,
 	.queue_io = &dio_queue_io,

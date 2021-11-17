@@ -99,7 +99,7 @@ static void aio_linux_destroy_thread_ctx(io_bench_thr_ctx_t *ctx)
 		free(pctx->iocbs);
 	if (!pctx->rr && pctx->fd != -1)
 		close(pctx->fd);
-	if (pctx->rr && pctx->fds)
+	if (pctx->rr && pctx->fds && !pctx->slot)
 		free((void *)pctx->fds);
 }
 

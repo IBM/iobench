@@ -70,6 +70,7 @@ typedef struct {
 
 typedef struct {
 	int (*init_thread_ctx)(io_bench_thr_ctx_t **pctx, io_bench_params_t *params, unsigned int dev_idx);
+	void (*stop_thread_ctx)(io_bench_thr_ctx_t *ctx);
 	void (*destroy_thread_ctx)(io_bench_thr_ctx_t *ctx);
 	int (*poll_completions)(io_bench_thr_ctx_t *ctx, int n);
 	io_ctx_t *(*get_io_ctx)(io_bench_thr_ctx_t *ctx, uint16_t slot);

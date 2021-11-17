@@ -174,13 +174,16 @@ static void update_io_stats(io_bench_thr_ctx_t *ctx, io_ctx_t *io, uint64_t stam
 
 static void term_handler(int signo)
 {
+	unsigned int i;
 	if (pthread_self() != global_ctx.main_thread) {
 		unsigned int i;
 		pthread_kill(global_ctx.main_thread, SIGTERM);
-		for (i = 0; i < init_params.ndevs; i++) {
-			if (global_ctx.threads[i] == pthread_self()) {
-				io_eng->destroy_thread_ctx(global_ctx.ctx_array[i]);
-				break;
+		if (io_eng->stop_thread_ctx) {
+			for (i = 0; i < init_params.ndevs; i++) {
+				if (global_ctx.threads[i] == pthread_self()) {
+					io_eng->stop_thread_ctx(global_ctx.ctx_array[i]);
+					break;
+				}
 			}
 		}
 		pthread_exit(NULL);
@@ -188,6 +191,10 @@ static void term_handler(int signo)
 	kill_all_threads();
 	print_final_process_stats();
 	join_all_threads();
+	if (io_eng->destroy_thread_ctx) {
+		for (i = 0; i < init_params.ndevs; i++)
+			io_eng->destroy_thread_ctx(global_ctx.ctx_array[i]);
+	}
 	exit(global_ctx.failed);
 }
 
