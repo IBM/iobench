@@ -15,6 +15,9 @@
 #ifndef _IOBENCH_LOGGER_H_
 #define _IOBENCH_LOGGER_H_
 
+#include <time.h>
+#include <stdint.h>
+
 typedef enum {
 	FACILITY_DBG,
 	FACILITY_INF,
@@ -72,5 +75,18 @@ do { \
 	if(err == -1) err = errno ? -errno : -def; \
 	else if(err > 0) err = -err; \
 } while(0)
+
+
+static inline uint64_t get_uptime_us(void)
+{
+	struct timespec spec_tv;
+	uint64_t res;
+	clock_gettime(CLOCK_MONOTONIC, &spec_tv);
+	res = spec_tv.tv_sec;
+	res *= 1000000;
+	res += spec_tv.tv_nsec / 1000;
+	return res;
+}
+
 
 #endif

@@ -39,6 +39,7 @@ io_eng_def_t dio_engine = {
 	.poll_completions = &dio_poll_completions,
 	.get_io_ctx = &dio_get_io_ctx,
 	.queue_io = &dio_queue_io,
+	.seed_per_io = true,
 };
 
 typedef struct {
@@ -145,6 +146,7 @@ static int dio_init_thread_ctx(io_bench_thr_ctx_t **pctx, io_bench_params_t *par
 	dio_thr_ctx_t *dio_thr_ctx;
 	size_t map_size;
 	unsigned int i;
+	unsigned int seed;
 	struct sigaction act = {{0}};
 
 	*pctx = NULL;
@@ -172,7 +174,9 @@ static int dio_init_thread_ctx(io_bench_thr_ctx_t **pctx, io_bench_params_t *par
 		dio_destroy_thread_ctx(&dio_thr_ctx->iobench_ctx);
 		return -ENOMEM;
 	}
+	seed = get_uptime_us();
 	for (i = 0; i < dio_thr_ctx->qs; i++) {
+		dio_thr_ctx->ioctx[i].ioctx.seed = seed++;
 		dio_thr_ctx->ioctx[i].ioctx.buf = dio_thr_ctx->buf_head + ((size_t)dio_thr_ctx->bs) * i;
 		dio_thr_ctx->ioctx[i].fd = -1;
 		dio_thr_ctx->ioctx[i].run_mutex = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;

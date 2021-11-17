@@ -20,7 +20,6 @@ DECLARE_BFN
 #include <unistd.h>
 #include <pthread.h>
 #include <signal.h>
-#include <time.h>
 #include <errno.h>
 
 #define SLEEP_INT_MS (2500)
@@ -46,17 +45,6 @@ struct {
 	.init_cond = PTHREAD_COND_INITIALIZER,
 	.run_cond = PTHREAD_COND_INITIALIZER,
 };
-
-static inline uint64_t get_uptime_us(void)
-{
-	struct timespec spec_tv;
-	uint64_t res;
-	clock_gettime(CLOCK_MONOTONIC, &spec_tv);
-	res = spec_tv.tv_sec;
-	res *= 1000000;
-	res += spec_tv.tv_nsec / 1000;
-	return res;
-}
 
 static io_bench_params_t init_params;
 static io_eng_def_t *io_eng = NULL;
@@ -172,6 +160,26 @@ static void update_io_stats(io_bench_thr_ctx_t *ctx, io_ctx_t *io, uint64_t stam
 	stat->iops++;
 }
 
+static void update_io_stats_atomic(io_bench_thr_ctx_t *ctx, io_ctx_t *io, uint64_t stamp)
+{
+	uint64_t lat = stamp - io->start_stamp;
+	io_bench_stats_t *stat = (!io->write) ? &ctx->read_stats : &ctx->write_stats;
+	uint64_t cur_min = stat->min_lat;
+	uint64_t cur_max = stat->max_lat;
+	while (lat < cur_min) {
+		if (__sync_bool_compare_and_swap(&stat->min_lat, cur_min, lat))
+			break;
+		cur_min = stat->min_lat;
+	}
+	while (lat > cur_max) {
+		if (__sync_bool_compare_and_swap(&stat->max_lat, cur_max, lat))
+			break;
+		cur_max = stat->max_lat;
+	}
+	__sync_fetch_and_add(&stat->lat, lat);
+	__sync_fetch_and_add(&stat->iops, 1);
+}
+
 static void term_handler(int signo)
 {
 	unsigned int i;
@@ -198,26 +206,51 @@ static void term_handler(int signo)
 	exit(global_ctx.failed);
 }
 
-static inline uint64_t choose_random_offset(io_bench_thr_ctx_t *thread_ctx, io_ctx_t *io)
+static uint64_t choose_seq_offset_atomic(io_bench_thr_ctx_t *thread_ctx, io_ctx_t *io)
 {
 	uint64_t result;
+	uint64_t new_value;
+
+	do {
+		result = global_ctx.ctx_array[io->dev_idx]->offset;
+		new_value = result + init_params.bs;
+		if (new_value >= global_ctx.ctx_array[io->dev_idx]->capacity)
+				new_value = 0;
+
+	} while (!__sync_bool_compare_and_swap(&global_ctx.ctx_array[io->dev_idx]->offset, result, new_value));
+	return result;
+}
+
+static uint64_t choose_seq_offset(io_bench_thr_ctx_t *thread_ctx, io_ctx_t *io)
+{
+	uint64_t result;
+	uint64_t new_value;
+
+	result = global_ctx.ctx_array[io->dev_idx]->offset;
+	new_value = result + init_params.bs;
+
+	if (new_value >= global_ctx.ctx_array[io->dev_idx]->capacity)
+		new_value = 0;
+	global_ctx.ctx_array[io->dev_idx]->offset = new_value;
+	return result;
+}
+
+static inline uint64_t choose_random_offset(io_bench_thr_ctx_t *thread_ctx, io_ctx_t *io, bool atomic)
+{
+	uint64_t result;
+	unsigned int *seed = (!io_eng->seed_per_io) ? &thread_ctx->seed : &io->seed;
 
 	if (init_params.seq) {
-			uint64_t new_value;
-			result = global_ctx.ctx_array[io->dev_idx]->offset;
-			new_value = result + init_params.bs;
-			if (new_value >= global_ctx.ctx_array[io->dev_idx]->capacity)
-				new_value = 0;
-			global_ctx.ctx_array[io->dev_idx]->offset = new_value;
+		result = (!atomic) ? choose_seq_offset(thread_ctx, io) : choose_seq_offset_atomic(thread_ctx, io);
 	} else {
-		result = ((double)rand_r(&thread_ctx->seed) * ((global_ctx.ctx_array[io->dev_idx]->capacity) / init_params.bs)) / ((unsigned int)RAND_MAX + 1);
+		result = ((double)rand_r(seed) * ((global_ctx.ctx_array[io->dev_idx]->capacity) / init_params.bs)) / ((unsigned int)RAND_MAX + 1);
 		result *= init_params.bs;
 		result += ((global_ctx.ctx_array[io->dev_idx]->capacity) * io->slot_idx);
 	}
 	return result;
 }
 
-static inline bool is_write_io(io_bench_thr_ctx_t *thread_ctx)
+static inline bool is_write_io(unsigned int *seed)
 {
 	if (!init_params.wp)
 		return false;
@@ -225,7 +258,7 @@ static inline bool is_write_io(io_bench_thr_ctx_t *thread_ctx)
 	if (init_params.wp == 100)
 		return true;
 
-	uint32_t val = ((double)rand_r(&thread_ctx->seed) * 100) / ((unsigned int)RAND_MAX + 1);
+	uint32_t val = ((double)rand_r(seed) * 100) / ((unsigned int)RAND_MAX + 1);
 	return  (val < init_params.wp);
 }
 
@@ -235,17 +268,19 @@ static inline unsigned int choose_dev_idx(io_bench_thr_ctx_t *thread_ctx)
 	return res;
 }
 
-static void prep_one_io(io_bench_thr_ctx_t *ctx, io_ctx_t *io, uint64_t stamp)
+static void prep_one_io(io_bench_thr_ctx_t *ctx, io_ctx_t *io, uint64_t stamp, bool atomic)
 {
+	unsigned int *seed = (!io_eng->seed_per_io) ? &ctx->seed : &io->seed;
 	io->start_stamp = stamp;
-	io->write = is_write_io(ctx);
+	io->write = is_write_io(seed);
 	io->dev_idx = (init_params.rr) ? choose_dev_idx(ctx) : ctx->thr_idx;
-	io->offset = choose_random_offset(ctx, io);
+	io->offset = choose_random_offset(ctx, io, atomic);
 }
 
 static int submit_one_io(io_bench_thr_ctx_t *ctx, io_ctx_t *io, uint64_t stamp)
 {
-	prep_one_io(ctx, io, stamp);
+	bool atomic = init_params.rr;
+	prep_one_io(ctx, io, stamp, atomic);
 	return io_eng->queue_io(ctx, io);
 }
 
@@ -279,12 +314,9 @@ done:
 
 void io_bench_complete_and_prep_io(io_bench_thr_ctx_t *ctx, io_ctx_t *io)
 {
-	static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 	uint64_t stamp = get_uptime_us();
-	pthread_mutex_lock(&lock);
-	update_io_stats(ctx, io, stamp);
-	prep_one_io(ctx, io, stamp);
-	pthread_mutex_unlock(&lock);
+	update_io_stats_atomic(ctx, io, stamp);
+	prep_one_io(ctx, io, stamp, true);
 	if (unlikely(io->status)) {
 		ERROR("IO to offset %lu, device %s fails with code %d", io->offset, init_params.devices[io->dev_idx], io->status);
 		if (init_params.fail_on_err)

@@ -65,6 +65,7 @@ typedef struct {
 	uint16_t dev_idx;
 	uint16_t slot_idx;
 	int status;
+	unsigned int seed;
 	bool write;
 } io_ctx_t;
 
@@ -75,6 +76,7 @@ typedef struct {
 	int (*poll_completions)(io_bench_thr_ctx_t *ctx, int n);
 	io_ctx_t *(*get_io_ctx)(io_bench_thr_ctx_t *ctx, uint16_t slot);
 	int (*queue_io)(io_bench_thr_ctx_t *ctx, io_ctx_t *io);
+	bool seed_per_io;
 } io_eng_def_t;
 
 int io_bench_parse_args(int argc, char **argv, io_bench_params_t *params);
