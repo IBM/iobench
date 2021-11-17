@@ -49,7 +49,6 @@ typedef struct {
 typedef struct {
 	io_context_t handle;
 	aio_linux_ioctx_t *ioctx;
-	struct iocb **iocbs;
 	void *buf_head;
 	uint32_t bs;
 	uint32_t qs;
@@ -95,8 +94,6 @@ static void aio_linux_destroy_thread_ctx(io_bench_thr_ctx_t *ctx)
 		munmap(pctx->buf_head, ((size_t)pctx->bs) * pctx->qs);
 	if (pctx->ioctx)
 		free(pctx->ioctx);
-	if (pctx->iocbs)
-		free(pctx->iocbs);
 	if (!pctx->rr && pctx->fd != -1)
 		close(pctx->fd);
 	if (pctx->rr && pctx->fds && !pctx->slot)
@@ -151,12 +148,6 @@ static int aio_linux_init_thread_ctx(io_bench_thr_ctx_t **pctx, io_bench_params_
 		aio_linux_destroy_thread_ctx(&aio_linux_thr_ctx->iobench_ctx);
 		return -ENOMEM;
 	}
-	aio_linux_thr_ctx->iocbs = calloc(params->qs, sizeof(*aio_linux_thr_ctx->iocbs));
-	if (!aio_linux_thr_ctx->iocbs) {
-		ERROR("Failed to alloc");
-		aio_linux_destroy_thread_ctx(&aio_linux_thr_ctx->iobench_ctx);
-		return -ENOMEM;
-	}
 	map_size = params->bs;
 	map_size *= params->qs;
 	aio_linux_thr_ctx->buf_head = mmap(NULL, map_size, PROT_READ|PROT_WRITE, MAP_SHARED|MAP_ANONYMOUS, -1, 0);
@@ -186,7 +177,6 @@ static int aio_linux_init_thread_ctx(io_bench_thr_ctx_t **pctx, io_bench_params_
 	}
 
 	for (i = 0; i < aio_linux_thr_ctx->qs; i++) {
-		aio_linux_thr_ctx->iocbs[i] = &aio_linux_thr_ctx->ioctx[i].iocb;
 		aio_linux_thr_ctx->ioctx[i].ioctx.buf = aio_linux_thr_ctx->buf_head + ((size_t)aio_linux_thr_ctx->bs) * i;
 		io_prep_pread(&aio_linux_thr_ctx->ioctx[i].iocb, fd, aio_linux_thr_ctx->ioctx[i].ioctx.buf,  aio_linux_thr_ctx->bs, 0);
 	}
