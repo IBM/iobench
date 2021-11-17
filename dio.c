@@ -16,6 +16,7 @@
 DECLARE_BFN
 #include "compiler.h"
 #include "iobench.h"
+#include "core_affinity.h"
 #include <pthread.h>
 #include <sys/mman.h>
 #include <sys/types.h>
@@ -49,6 +50,7 @@ typedef struct {
 	pthread_t tid;
 	pthread_cond_t run_cond;
 	pthread_mutex_t run_mutex;
+	int cpu;
 	bool may_run;
 } dio_ioctx_t;
 
@@ -128,6 +130,8 @@ static void *thread_func(void *arg)
 	uint32_t bs = U_2_P(thr_ctx)->bs;
 	int rc;
 
+	if (ctx->cpu != -1)
+		set_thread_affinity(ctx->cpu);
 	pthread_mutex_lock(&ctx->run_mutex);
 	while (!ctx->may_run)
 		pthread_cond_wait(&ctx->run_cond, &ctx->run_mutex);
@@ -182,6 +186,7 @@ static int dio_init_thread_ctx(io_bench_thr_ctx_t **pctx, io_bench_params_t *par
 		dio_thr_ctx->ioctx[i].run_mutex = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
 		dio_thr_ctx->ioctx[i].run_cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
 		dio_thr_ctx->ioctx[i].parent = &dio_thr_ctx->iobench_ctx;
+		dio_thr_ctx->ioctx[i].cpu = (params->use_numa) ? get_next_numa_rr_cpu() : -1;
 	}
 	for (i = 0; i < dio_thr_ctx->qs; i++) {
 		dio_thr_ctx->ioctx[i].fd = open(params->devices[dev_idx], O_RDWR|O_DIRECT);

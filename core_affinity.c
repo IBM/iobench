@@ -215,6 +215,7 @@ static int init_numa_nodes(struct numa_cpu_set *set, numa_node_t **pnuma_data)
 
 unsigned int get_next_numa_rr_cpu(void)
 {
+	static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 	static bool init_done = false;
 	static int nodes = 0;
 	static struct numa_cpu_set nodes_set;
@@ -222,11 +223,13 @@ unsigned int get_next_numa_rr_cpu(void)
 	static int next_numa_idx = 0;
 	int res;
 
+	pthread_mutex_lock(&lock);
 	if (!init_done) {
 		nodes = init_numa_nodes(&nodes_set, &nodes_data);
 		init_done = true;
 		if (nodes < 0) {
 			nodes = 0;
+			pthread_mutex_unlock(&lock);
 			return -1;
 		}
 	}
@@ -235,5 +238,6 @@ unsigned int get_next_numa_rr_cpu(void)
 	next_numa_idx++;
 	if (next_numa_idx == nodes)
 		next_numa_idx = 0;
+	pthread_mutex_unlock(&lock);
 	return res;
 }
