@@ -60,7 +60,6 @@ typedef struct {
 	void *buf_head;
 	uint32_t bs;
 	uint32_t qs;
-	int fd;
 	io_bench_thr_ctx_t iobench_ctx;
 } dio_thr_ctx_t;
 

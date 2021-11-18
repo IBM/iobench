@@ -385,7 +385,7 @@ static int start_threads(void)
 	unsigned int cpu = -1U;
 	struct numa_cpu_set *set = NULL;
 
-	if (init_params.cpuset) {
+	if (init_params.cpuset && init_params.engine != ENGINE_DIO) {
 		set = alloca(get_numa_set_size());
 		if (init_cpu_set_from_str(set, init_params.cpuset, 0))
 			set = NULL;

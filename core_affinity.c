@@ -234,7 +234,6 @@ unsigned int get_next_numa_rr_cpu(void)
 		}
 	}
 	res = get_next_cpu(&nodes_data[next_numa_idx].cpuset);
-	INFO("Selected CPU %d from numa ID %d", res, nodes_data[next_numa_idx].numa_id);
 	next_numa_idx++;
 	if (next_numa_idx == nodes)
 		next_numa_idx = 0;
