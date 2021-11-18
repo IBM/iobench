@@ -34,8 +34,19 @@ int io_bench_parse_args(int argc, char **argv, io_bench_params_t *params)
 	while (argc) {
 		int dec = 2;
 		if (!strcmp(argv[0], "-bs")) {
-			if (params->bs || argc == 1 || sscanf(argv[1], "%u", &params->bs) != 1)
+			char tail[strlen(argv[1])+1];
+			if (params->bs || argc == 1)
 				usage();
+			if (sscanf(argv[1], "%u%s",  &params->bs, tail) == 2) {
+				if (!strcmp(tail, "M"))
+					params->bs <<= 20;
+				else if (!strcmp(tail, "K"))
+					params->bs <<= 10;
+				else
+					usage();
+			} else if (sscanf(argv[1], "%u",  &params->bs) != 1) {
+				usage();
+			}
 		} else if (!strcmp(argv[0], "-qs")) {
 			if (params->qs || argc == 1 || sscanf(argv[1], "%hu", &params->qs) != 1)
 				usage();
