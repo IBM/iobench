@@ -57,7 +57,6 @@ typedef struct {
 typedef struct {
 	dio_ioctx_t *ioctx;
 	pthread_t self;
-	void *buf_head;
 	uint32_t bs;
 	uint32_t qs;
 	io_bench_thr_ctx_t iobench_ctx;
@@ -106,8 +105,6 @@ static void dio_destroy_thread_ctx(io_bench_thr_ctx_t *ctx)
 	dio_thr_ctx_t *pctx = U_2_P(ctx);
 
 	kill_all_dio_threads(ctx);
-	if (pctx->buf_head)
-		munmap(pctx->buf_head, ((size_t)pctx->bs) * pctx->qs);
 
 	if (pctx->ioctx)
 		free(pctx->ioctx);
@@ -147,7 +144,6 @@ static void *thread_func(void *arg)
 static int dio_init_thread_ctx(io_bench_thr_ctx_t **pctx, io_bench_params_t *params, unsigned int dev_idx)
 {
 	dio_thr_ctx_t *dio_thr_ctx;
-	size_t map_size;
 	unsigned int i;
 	unsigned int seed;
 	struct sigaction act = {{0}};
@@ -163,14 +159,6 @@ static int dio_init_thread_ctx(io_bench_thr_ctx_t **pctx, io_bench_params_t *par
 	dio_thr_ctx->qs = params->qs;
 	dio_thr_ctx->bs = params->bs;
 
-	map_size = params->bs;
-	map_size *= params->qs;
-	dio_thr_ctx->buf_head = mmap(NULL, map_size, PROT_READ|PROT_WRITE, MAP_SHARED|MAP_ANONYMOUS, -1, 0);
-	if (dio_thr_ctx->buf_head == MAP_FAILED) {
-		ERROR("Failed to map IO buffers");
-		dio_destroy_thread_ctx(&dio_thr_ctx->iobench_ctx);
-		return -ENOMEM;
-	}
 	dio_thr_ctx->ioctx = calloc(params->qs, sizeof(*dio_thr_ctx->ioctx));
 	if (!dio_thr_ctx->ioctx) {
 		ERROR("Failed to map IO buffers");
@@ -180,7 +168,6 @@ static int dio_init_thread_ctx(io_bench_thr_ctx_t **pctx, io_bench_params_t *par
 	seed = get_uptime_us();
 	for (i = 0; i < dio_thr_ctx->qs; i++) {
 		dio_thr_ctx->ioctx[i].ioctx.seed = seed++;
-		dio_thr_ctx->ioctx[i].ioctx.buf = dio_thr_ctx->buf_head + ((size_t)dio_thr_ctx->bs) * i;
 		dio_thr_ctx->ioctx[i].fd = -1;
 		dio_thr_ctx->ioctx[i].run_mutex = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
 		dio_thr_ctx->ioctx[i].run_cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;

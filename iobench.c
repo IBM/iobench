@@ -16,7 +16,11 @@ DECLARE_BFN
 #include "iobench.h"
 #include "compiler.h"
 #include "core_affinity.h"
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 #include <stdlib.h>
+#include <sys/mman.h>
 #include <unistd.h>
 #include <pthread.h>
 #include <signal.h>
@@ -27,6 +31,8 @@ DECLARE_BFN
 struct {
 	io_bench_stats_t read_stats;
 	io_bench_stats_t write_stats;
+	void *pf_map;
+	uint64_t pf_size;
 	uint64_t int_start;
 	uint64_t start;
 	io_bench_thr_ctx_t **ctx_array;
@@ -268,6 +274,31 @@ static inline unsigned int choose_dev_idx(io_bench_thr_ctx_t *thread_ctx)
 	return res;
 }
 
+static void update_pf_offset(io_bench_thr_ctx_t *thread_ctx, io_ctx_t *io, bool atomic)
+{
+	void *buf;
+	if (likely(!atomic)) {
+		buf =  global_ctx.pf_map + thread_ctx->pf_offset;
+		thread_ctx->pf_offset += init_params.bs;
+		if (thread_ctx->pf_offset >= global_ctx.pf_size)
+			thread_ctx->pf_offset = 0;
+	} else {
+		uint64_t val;
+		uint64_t new_val;
+		do {
+			val = thread_ctx->pf_offset;
+			new_val = val + init_params.bs;
+			if (new_val >= global_ctx.pf_size)
+				new_val = 0;
+		} while (!__sync_bool_compare_and_swap(&thread_ctx->pf_offset, val, new_val));
+		buf =  global_ctx.pf_map + val;
+	}
+	if (unlikely(io_eng->need_mr_buffers))
+		memcpy(io->buf, buf, init_params.bs);
+	else
+		io->buf = buf;
+}
+
 static void prep_one_io(io_bench_thr_ctx_t *ctx, io_ctx_t *io, uint64_t stamp, bool atomic)
 {
 	unsigned int *seed = (!io_eng->seed_per_io) ? &ctx->seed : &io->seed;
@@ -275,6 +306,8 @@ static void prep_one_io(io_bench_thr_ctx_t *ctx, io_ctx_t *io, uint64_t stamp, b
 	io->write = is_write_io(seed);
 	io->dev_idx = (init_params.rr) ? choose_dev_idx(ctx) : ctx->thr_idx;
 	io->offset = choose_random_offset(ctx, io, atomic);
+	if (unlikely(global_ctx.pf_map))
+		update_pf_offset(global_ctx.ctx_array[io->dev_idx], io, atomic || init_params.rr);
 }
 
 static int submit_one_io(io_bench_thr_ctx_t *ctx, io_ctx_t *io, uint64_t stamp)
@@ -340,7 +373,18 @@ static void *thread_func(void *arg)
 		handle_thread_failure();
 	}
 	global_ctx.ctx_array[idx]->thr_idx = idx;
-	 global_ctx.ctx_array[idx]->seed = get_uptime_us() + idx;
+	global_ctx.ctx_array[idx]->seed = get_uptime_us() + idx;
+
+	if (!io_eng->need_mr_buffers) {
+		int flags = (init_params.mlock) ? MAP_LOCKED : 0;
+		size_t map_size = init_params.bs;
+		map_size *= init_params.qs;
+		global_ctx.ctx_array[idx]->buf_head = mmap(NULL, map_size, PROT_READ|PROT_WRITE, MAP_SHARED|MAP_ANONYMOUS|flags, -1, 0);
+		if (global_ctx.ctx_array[idx]->buf_head == MAP_FAILED) {
+			ERROR("Thread %u failed to allocate buffers", idx);
+			handle_thread_failure();
+		}
+	}
 
 	if (init_params.hit_size && init_params.hit_size < global_ctx.ctx_array[idx]->capacity)
 		global_ctx.ctx_array[idx]->capacity = init_params.hit_size;
@@ -365,6 +409,8 @@ static void *thread_func(void *arg)
 		io_ctx_t *io_ctx = io_eng->get_io_ctx(global_ctx.ctx_array[idx], i);
 		ASSERT(io_ctx);
 		io_ctx->slot_idx = i;
+		if (!io_eng->need_mr_buffers)
+			io_ctx->buf = global_ctx.ctx_array[idx]->buf_head + init_params.bs * i;
 		rc = submit_one_io(global_ctx.ctx_array[idx], io_ctx, get_uptime_us());
 		if (unlikely(rc)) {
 			if (init_params.fail_on_err)
@@ -385,6 +431,28 @@ static int start_threads(void)
 	unsigned int cpu = -1U;
 	struct numa_cpu_set *set = NULL;
 
+	if (init_params.pf_name) {
+		int fd;
+		int flags = (init_params.mlock) ? MAP_LOCKED : 0;
+		fd = open(init_params.pf_name, O_RDONLY);
+		if (fd < 0) {
+			ERROR("Failed to open pattetn file %s", init_params.pf_name);
+			return -1;
+		}
+		global_ctx.pf_size = lseek(fd, 0, SEEK_END);
+		if (global_ctx.pf_size == -1ULL) {
+			ERROR("Failed to get size of pattetn file %s", init_params.pf_name);
+			close(fd);
+			return -1;
+		}
+		global_ctx.pf_size = (global_ctx.pf_size / init_params.bs) * init_params.bs;
+		global_ctx.pf_map = mmap(NULL, global_ctx.pf_size, PROT_READ, MAP_SHARED|flags, fd, 0);
+		close(fd);
+		if (global_ctx.pf_map == MAP_FAILED) {
+			ERROR("Failed to map pattern file %s", init_params.pf_name);
+			return -1;
+		}
+	}
 	if (init_params.cpuset && init_params.engine != ENGINE_DIO) {
 		set = alloca(get_numa_set_size());
 		if (init_cpu_set_from_str(set, init_params.cpuset, 0))

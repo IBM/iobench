@@ -18,7 +18,7 @@ DECLARE_BFN
 
 #define usage() \
 do { \
-	ERROR("Use as %s [-bs block_size] [-qs queue_size]  [-fail-on-err] [ -seq ] [-rr] [-hit-size value] [-t run_time_sec] [-numa |-cpuset set] [-write | -wp value] [ -engine aio|aio_linux|scsi|nvme|dio ] dev_list]", prog_name); \
+	ERROR("Use as %s [-bs block_size] [-qs queue_size]  [-fail-on-err] [ -seq ] [-mlock] [-rr] [-hit-size value] [-pf pattern_file] [-t run_time_sec] [-numa |-cpuset set] [-write | -wp value] [ -engine aio|aio_linux|scsi|nvme|dio ] dev_list]", prog_name); \
 	return -1; \
 } while(0)
 
@@ -76,6 +76,10 @@ int io_bench_parse_args(int argc, char **argv, io_bench_params_t *params)
 			if (params->cpuset || params->use_numa || argc == 1)
 				usage();
 			params->cpuset = argv[1];
+		} else if (!strcmp(argv[0], "-pf")) {
+			if (params->pf_name || argc == 1)
+				usage();
+			params->pf_name = argv[1];
 		} else if (!strcmp(argv[0], "-fail-on-err")) {
 			if (params->fail_on_err)
 				usage();
@@ -96,6 +100,10 @@ int io_bench_parse_args(int argc, char **argv, io_bench_params_t *params)
 			if (params->use_numa || params->cpuset)
 				usage();
 			params->use_numa = true; dec = 1;
+		} else if (!strcmp(argv[0], "-mlock")) {
+			if (params->mlock)
+				usage();
+			params->mlock = true; dec = 1;
 		} else if (!strcmp(argv[0], "-engine")) {
 			if (params->engine != ENGINE_INVALID || argc == 1)
 				usage();

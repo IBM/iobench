@@ -49,7 +49,6 @@ typedef struct {
 typedef struct {
 	io_context_t handle;
 	aio_linux_ioctx_t *ioctx;
-	void *buf_head;
 	uint32_t bs;
 	uint32_t qs;
 	uint32_t slot;
@@ -90,8 +89,6 @@ typedef struct {
 static void aio_linux_destroy_thread_ctx(io_bench_thr_ctx_t *ctx)
 {
 	aio_linux_thr_ctx_t *pctx = U_2_P(ctx);
-	if (pctx->buf_head)
-		munmap(pctx->buf_head, ((size_t)pctx->bs) * pctx->qs);
 	if (pctx->ioctx)
 		free(pctx->ioctx);
 	if (!pctx->rr && pctx->fd != -1)
@@ -103,7 +100,6 @@ static void aio_linux_destroy_thread_ctx(io_bench_thr_ctx_t *ctx)
 static int aio_linux_init_thread_ctx(io_bench_thr_ctx_t **pctx, io_bench_params_t *params, unsigned int dev_idx)
 {
 	aio_linux_thr_ctx_t *aio_linux_thr_ctx;
-	size_t map_size;
 	unsigned int i;
 	static int *fds = NULL;
 	int fd;
@@ -148,14 +144,6 @@ static int aio_linux_init_thread_ctx(io_bench_thr_ctx_t **pctx, io_bench_params_
 		aio_linux_destroy_thread_ctx(&aio_linux_thr_ctx->iobench_ctx);
 		return -ENOMEM;
 	}
-	map_size = params->bs;
-	map_size *= params->qs;
-	aio_linux_thr_ctx->buf_head = mmap(NULL, map_size, PROT_READ|PROT_WRITE, MAP_SHARED|MAP_ANONYMOUS, -1, 0);
-	if (aio_linux_thr_ctx->buf_head == MAP_FAILED) {
-		ERROR("Failed to map IO buffers");
-		aio_linux_destroy_thread_ctx(&aio_linux_thr_ctx->iobench_ctx);
-		return -ENOMEM;
-	}
 	if (!params->rr) {
 		aio_linux_thr_ctx->fd = open(params->devices[dev_idx], O_RDWR|O_DIRECT);
 		if (aio_linux_thr_ctx->fd < 0) {
@@ -176,10 +164,9 @@ static int aio_linux_init_thread_ctx(io_bench_thr_ctx_t **pctx, io_bench_params_
 		return -ENOMEM;
 	}
 
-	for (i = 0; i < aio_linux_thr_ctx->qs; i++) {
-		aio_linux_thr_ctx->ioctx[i].ioctx.buf = aio_linux_thr_ctx->buf_head + ((size_t)aio_linux_thr_ctx->bs) * i;
+	for (i = 0; i < aio_linux_thr_ctx->qs; i++)
 		io_prep_pread(&aio_linux_thr_ctx->ioctx[i].iocb, fd, aio_linux_thr_ctx->ioctx[i].ioctx.buf,  aio_linux_thr_ctx->bs, 0);
-	}
+
 	*pctx = &aio_linux_thr_ctx->iobench_ctx;
 	return 0;
 }

@@ -41,8 +41,10 @@ typedef struct {
 	bool fail_on_err;
 	bool seq;
 	bool rr;
+	bool mlock;
 	uint8_t wp;
 	io_eng_t engine;
+	char *pf_name;
 	char **devices;
 	unsigned int ndevs;
 	bool use_numa;
@@ -52,6 +54,8 @@ typedef struct {
 typedef struct {
 	uint64_t capacity;
 	uint64_t offset;
+	uint64_t pf_offset;
+	void *buf_head;
 	io_bench_stats_t write_stats;
 	io_bench_stats_t read_stats;
 	unsigned int seed;
@@ -77,6 +81,7 @@ typedef struct {
 	io_ctx_t *(*get_io_ctx)(io_bench_thr_ctx_t *ctx, uint16_t slot);
 	int (*queue_io)(io_bench_thr_ctx_t *ctx, io_ctx_t *io);
 	bool seed_per_io;
+	bool need_mr_buffers;
 } io_eng_def_t;
 
 int io_bench_parse_args(int argc, char **argv, io_bench_params_t *params);
