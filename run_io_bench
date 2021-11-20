@@ -1,0 +1,18 @@
+#!/bin/bash
+
+if [ -e ~/.io_bench_params ]; then
+        . ~/.io_bench_params
+fi
+
+if [ "$(echo ${args} | grep '\-qs')" = "" ]; then
+	args="${args} -qs 64"
+fi
+
+if [ "$(echo ${args} | grep '\-qs' | sed -e 's/.*-qs//' | awk '{print $1}')" = 1 ]; then
+	echo ${HOME}/iobench/iobench ${args} /dev/dm* 
+	${HOME}/iobench/iobench ${args} /dev/dm* 	
+else
+	echo ${HOME}/iobench/iobench ${args} /dev/dm* /dev/dm*
+	${HOME}/iobench/iobench ${args} /dev/dm* /dev/dm*
+fi
+echo EXITED
