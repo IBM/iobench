@@ -499,6 +499,8 @@ static int start_threads(void)
 		if (set) {
 			cpu = get_next_cpu(set);
 			INFO("Selected CPU %u", cpu);
+		} else if (init_params.remap_numa) {
+			cpu = get_next_remapped_numa_cpu(init_params.remap_numa, get_numa_id_of_block_device(init_params.devices[i]));
 		} else if (init_params.use_numa) {
 			cpu = get_next_numa_rr_cpu();
 		}

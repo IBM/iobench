@@ -22,5 +22,7 @@ int init_cpu_set_from_str(struct numa_cpu_set *set, char *str, unsigned int firs
 unsigned int get_next_cpu(struct numa_cpu_set *set);
 int set_thread_affinity(unsigned int cpu);
 unsigned int get_next_numa_rr_cpu(void);
+unsigned int get_next_remapped_numa_cpu(char *remap, unsigned int numa_id);
+unsigned int get_numa_id_of_block_device(char *device);
 
 #endif

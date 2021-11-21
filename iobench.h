@@ -50,6 +50,7 @@ typedef struct {
 	unsigned int ndevs;
 	bool use_numa;
 	char *cpuset;
+	char *remap_numa;
 } io_bench_params_t;
 
 typedef struct {

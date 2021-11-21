@@ -18,7 +18,8 @@ DECLARE_BFN
 
 #define usage() \
 do { \
-	ERROR("Use as %s [-bs block_size] [-qs queue_size]  [-fail-on-err] [ -seq ] [-mlock] [-rr | -write-once] [-hit-size value] [-pf pattern_file] [-t run_time_sec] [-numa |-cpuset set] [-write | -wp value] [ -engine aio|aio_linux|scsi|nvme|dio ] dev_list]", prog_name); \
+	ERROR("Use as %s [-bs block_size] [-qs queue_size]  [-fail-on-err] [ -seq ] [-mlock] [-rr | -write-once] [-hit-size value] [-pf pattern_file] [-t run_time_sec] " \
+	"[-numa |-cpuset set | -remap-numa numa@numa_list[:numa@numa_list]...] [-write | -wp value] [ -engine aio|aio_linux|scsi|nvme|dio ] dev_list]", prog_name); \
 	return -1; \
 } while(0)
 
@@ -76,6 +77,10 @@ int io_bench_parse_args(int argc, char **argv, io_bench_params_t *params)
 			if (params->cpuset || params->use_numa || argc == 1)
 				usage();
 			params->cpuset = argv[1];
+		} else if (!strcmp(argv[0], "-remap-numa")) {
+			if (params->cpuset || params->remap_numa || argc == 1)
+				usage();
+			params->remap_numa = argv[1];
 		} else if (!strcmp(argv[0], "-pf")) {
 			if (params->pf_name || argc == 1)
 				usage();

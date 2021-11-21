@@ -172,7 +172,10 @@ static int dio_init_thread_ctx(io_bench_thr_ctx_t **pctx, io_bench_params_t *par
 		dio_thr_ctx->ioctx[i].run_mutex = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
 		dio_thr_ctx->ioctx[i].run_cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
 		dio_thr_ctx->ioctx[i].parent = &dio_thr_ctx->iobench_ctx;
-		dio_thr_ctx->ioctx[i].cpu = (params->use_numa) ? get_next_numa_rr_cpu() : -1;
+		if (params->remap_numa)
+			dio_thr_ctx->ioctx[i].cpu = get_next_remapped_numa_cpu(params->remap_numa, get_numa_id_of_block_device(params->devices[dev_idx]));
+		else
+			dio_thr_ctx->ioctx[i].cpu = (params->use_numa) ? get_next_numa_rr_cpu() : -1;
 	}
 	for (i = 0; i < dio_thr_ctx->qs; i++) {
 		dio_thr_ctx->ioctx[i].fd = open(params->devices[dev_idx], O_RDWR|O_DIRECT);
