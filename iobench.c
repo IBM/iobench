@@ -308,6 +308,10 @@ static void prep_one_io(io_bench_thr_ctx_t *ctx, io_ctx_t *io, uint64_t stamp, b
 	io->offset = choose_random_offset(ctx, io, atomic);
 	if (unlikely(global_ctx.pf_map))
 		update_pf_offset(global_ctx.ctx_array[io->dev_idx], io, atomic || init_params.rr);
+	if (unlikely(init_params.wr_once && (ctx->write_stats.iops * init_params.bs) >= ctx->capacity)) {
+		__sync_fetch_and_sub(&global_ctx.done_init, 1);
+		pthread_exit(NULL);
+	}
 }
 
 static int submit_one_io(io_bench_thr_ctx_t *ctx, io_ctx_t *io, uint64_t stamp)
@@ -508,7 +512,7 @@ static int start_threads(void)
 	INFO_NOPFX(" RdKIOPS  WrKIOPS  Rd MiB/s  Wr MiB/s      Rd Lat  MinRLat  MaxRLat      Wr Lat  MinWLat  MaxWLat");
 	INFO_NOPFX("-------------------------------------------------------------------------------------------------");
 
-	while (stamp < stop_stamp) {
+	while (stamp < stop_stamp && global_ctx.done_init) {
 		usleep(SLEEP_INT_MS * 1000);
 		stamp = get_uptime_us();
 		update_process_io_stats(stamp, false);

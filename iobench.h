@@ -42,6 +42,7 @@ typedef struct {
 	bool seq;
 	bool rr;
 	bool mlock;
+	bool wr_once;
 	uint8_t wp;
 	io_eng_t engine;
 	char *pf_name;
