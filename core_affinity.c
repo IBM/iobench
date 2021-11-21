@@ -40,11 +40,6 @@ struct numa_cpu_set
 	} numa_cpus;
 };
 
-size_t get_numa_set_size(void)
-{
-	return sizeof(struct numa_cpu_set);
-}
-
 static inline void SET_BIT(unsigned int bit, uint64_t *map)
 {
 	unsigned int off = bit / 64;
@@ -65,6 +60,7 @@ static inline bool IS_SET_BIT(unsigned int bit, uint64_t *map)
 	return map[off] & ((1UL << bit));
 }
 
+static int init_cpu_set_from_str(struct numa_cpu_set *set, char *buf, unsigned int first_cpu);
 
 int init_numa_cpu_set(struct numa_cpu_set *set, unsigned int numa_id, unsigned int first_cpu)
 {
@@ -94,7 +90,7 @@ int init_numa_cpu_set(struct numa_cpu_set *set, unsigned int numa_id, unsigned i
 	return init_cpu_set_from_str(set, buf, first_cpu);
 }
 
-int init_cpu_set_from_str(struct numa_cpu_set *set, char *buf, unsigned int first_cpu)
+static int init_cpu_set_from_str(struct numa_cpu_set *set, char *buf, unsigned int first_cpu)
 {
 	char *p = buf;
 	char *next = buf;
@@ -140,7 +136,7 @@ int init_cpu_set_from_str(struct numa_cpu_set *set, char *buf, unsigned int firs
 	return 0;
 }
 
-unsigned int get_next_cpu(struct numa_cpu_set *set)
+static int get_next_cpu(struct numa_cpu_set *set)
 {
 	unsigned int off;
 	for (off = 0; off < MAP_SIZE; off++) {
@@ -351,7 +347,7 @@ unsigned int get_next_remapped_numa_cpu(char *remap, unsigned int numa_id)
 	return cpu;
 }
 
-unsigned int get_next_numa_rr_cpu(void)
+unsigned int get_next_numa_rr_cpu(unsigned int numa_id)
 {
 	static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 	static bool init_done = false;
@@ -371,8 +367,18 @@ unsigned int get_next_numa_rr_cpu(void)
 			return -1;
 		}
 	}
-	res = get_next_cpu(&nodes_data[next_numa_idx].cpuset);
-	next_numa_idx++;
+	if (numa_id != -1U) {
+		res = -1;
+		for (int i = 0; i < nodes; i++) {
+			if (nodes_data[i].numa_id == numa_id) {
+				res = get_next_cpu(&nodes_data[i].cpuset);
+				break;
+			}
+		}
+	} else {
+		res = get_next_cpu(&nodes_data[next_numa_idx].cpuset);
+		next_numa_idx++;
+	}
 	if (next_numa_idx == nodes)
 		next_numa_idx = 0;
 	pthread_mutex_unlock(&lock);
@@ -400,14 +406,31 @@ unsigned int get_numa_id_of_block_device(char *device)
 	}
 	rc = read(fd, buf, sizeof(buf)-1);
 	close(fd);
-	if (rc <= 0) {
-		ERROR("Failed to read %s", name);
+	if (rc <= 0)
 		return -1U;
-	}
 	buf[rc] = '\0';
 	if (sscanf(buf, "%d",&rc) != 1) {
 		ERROR("Failed to parse %s", name);
 		return -1U;
 	}
 	return rc;
+}
+
+unsigned int get_next_cpu_from_set(char *set_string)
+{
+	static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+	static bool init_done = false;
+	static struct numa_cpu_set set;
+	static bool failed = false;
+	unsigned int res;
+
+	pthread_mutex_lock(&lock);
+	if (!init_done) {
+		if (init_cpu_set_from_str(&set, set_string, 0))
+			failed = true;
+		init_done = true;
+	}
+	res = (!failed) ? get_next_cpu(&set) : -1U;
+	pthread_mutex_unlock(&lock);
+	return res;
 }

@@ -434,7 +434,6 @@ static int start_threads(void)
 	uint64_t stop_stamp, stamp = 0;
 	struct sigaction act = {{0}};
 	unsigned int cpu = -1U;
-	struct numa_cpu_set *set = NULL;
 	struct rlimit rlim;
 
 	if (init_params.pf_name) {
@@ -472,11 +471,6 @@ static int start_threads(void)
 		return -1;
 	}
 
-	if (init_params.cpuset && init_params.engine != ENGINE_DIO) {
-		set = alloca(get_numa_set_size());
-		if (init_cpu_set_from_str(set, init_params.cpuset, 0))
-			set = NULL;
-	}
 	act.sa_handler = term_handler;
 	if (sigaction(SIGTERM, &act, NULL)) {
 		ERROR("Failed to setup SIGTERM handler");
@@ -496,13 +490,17 @@ static int start_threads(void)
 	};
 	for (i = 0; i < init_params.ndevs; i++) {
 		unsigned long val = i;
-		if (set) {
-			cpu = get_next_cpu(set);
-			INFO("Selected CPU %u", cpu);
-		} else if (init_params.remap_numa) {
-			cpu = get_next_remapped_numa_cpu(init_params.remap_numa, get_numa_id_of_block_device(init_params.devices[i]));
-		} else if (init_params.use_numa) {
-			cpu = get_next_numa_rr_cpu();
+		cpu = -1;
+		if (init_params.cpuset) {
+			if (init_params.engine != ENGINE_DIO)
+				cpu = get_next_cpu_from_set(init_params.cpuset);
+		} else if (init_params.remap_numa ||init_params.use_numa)  {
+			unsigned int numa_id = get_numa_id_of_block_device(init_params.devices[i]);
+			if (init_params.remap_numa && numa_id != -1U) {
+				cpu = get_next_remapped_numa_cpu(init_params.remap_numa, numa_id);
+			} else {
+				cpu = get_next_numa_rr_cpu(numa_id);
+			}
 		}
 		val |= (cpu << 16);
 		if (pthread_create(&global_ctx.threads[i], NULL, thread_func, (void *)val)) {
