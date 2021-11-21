@@ -23,6 +23,7 @@ DECLARE_BFN
 #include <sys/mman.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <sys/resource.h>
 #include <signal.h>
 #include <errno.h>
 
@@ -434,6 +435,7 @@ static int start_threads(void)
 	struct sigaction act = {{0}};
 	unsigned int cpu = -1U;
 	struct numa_cpu_set *set = NULL;
+	struct rlimit rlim;
 
 	if (init_params.pf_name) {
 		int fd;
@@ -457,6 +459,19 @@ static int start_threads(void)
 			return -1;
 		}
 	}
+
+	if (getrlimit(RLIMIT_NOFILE, &rlim)) {
+		ERROR("Cannot read file number limit");
+		return -1;
+	}
+	rlim.rlim_cur = init_params.ndevs * init_params.qs + init_params.ndevs + 16;
+	if (rlim.rlim_cur > rlim.rlim_max)
+		rlim.rlim_cur = rlim.rlim_max;
+	if (setrlimit(RLIMIT_NOFILE, &rlim)) {
+		ERROR("Cannot read file number limit");
+		return -1;
+	}
+
 	if (init_params.cpuset && init_params.engine != ENGINE_DIO) {
 		set = alloca(get_numa_set_size());
 		if (init_cpu_set_from_str(set, init_params.cpuset, 0))
