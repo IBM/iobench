@@ -146,8 +146,10 @@ int io_bench_parse_args(int argc, char **argv, io_bench_params_t *params)
 		params->bs = 4096;
 	if (!params->qs)
 		params->qs = 16;
-	if (params->engine == ENGINE_INVALID)
+	if (params->engine == ENGINE_INVALID) {
 		INFO("Falling back to Linux DIO AIO");
+		params->engine = ENGINE_AIO_LINUX;
+	}
 	if (params->hit_size && (params->hit_size < params->bs)) {
 		ERROR("Invalid hit size -- cannot be smaller than IO size");
 		usage();
