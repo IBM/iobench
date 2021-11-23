@@ -334,6 +334,7 @@ static void prep_one_io(io_bench_thr_ctx_t *ctx, io_ctx_t *io, uint64_t stamp, b
 	io->write = is_write_io(seed);
 	io->dev_idx = (init_params.rr) ? choose_dev_idx(ctx) : ctx->thr_idx;
 	io->offset = choose_random_offset(ctx, io, atomic);
+	io->offset += global_ctx.ctx_array[io->dev_idx]->base_offset;
 	if (unlikely(global_ctx.pf_map))
 		update_pf_offset(global_ctx.ctx_array[io->dev_idx], io, atomic || init_params.rr);
 	if (unlikely(init_params.pass_once && ((ctx->write_stats.iops + ctx->read_stats.iops) * init_params.bs) >= ctx->capacity)) {
@@ -427,12 +428,14 @@ static void *thread_func(void *arg)
 		}
 	}
 
-	if (init_params.hit_size)
-		init_params.hit_size = (init_params.hit_size / init_params.bs) * init_params.bs;
-	global_ctx.ctx_array[idx]->capacity = (global_ctx.ctx_array[idx]->capacity / init_params.bs) * init_params.bs;
 
 	if (init_params.hit_size && init_params.hit_size < global_ctx.ctx_array[idx]->capacity)
 		global_ctx.ctx_array[idx]->capacity = init_params.hit_size;
+
+	global_ctx.ctx_array[idx]->capacity /= init_params.threads_per_dev;
+	global_ctx.ctx_array[idx]->capacity = (global_ctx.ctx_array[idx]->capacity / init_params.bs) * init_params.bs;
+	global_ctx.ctx_array[idx]->base_offset = (idx % init_params.threads_per_dev) * global_ctx.ctx_array[idx]->capacity;
+
 	if (!init_params.seq) {
 		global_ctx.ctx_array[idx]->capacity /= init_params.qs;
 		global_ctx.ctx_array[idx]->capacity = (global_ctx.ctx_array[idx]->capacity / init_params.bs) * init_params.bs;
@@ -504,7 +507,7 @@ static int start_threads(void)
 		ERROR("Cannot read file number limit");
 		return -1;
 	}
-	rlim.rlim_cur = init_params.ndevs * init_params.qs + init_params.ndevs + 16;
+	rlim.rlim_cur = init_params.ndevs * init_params.qs * init_params.threads_per_dev + 1024;
 	if (rlim.rlim_cur > rlim.rlim_max)
 		rlim.rlim_cur = rlim.rlim_max;
 	if (setrlimit(RLIMIT_NOFILE, &rlim)) {

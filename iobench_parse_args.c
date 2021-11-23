@@ -15,11 +15,13 @@
 #include "logger.h"
 DECLARE_BFN
 #include "iobench.h"
+#include <stdlib.h>
+#include <errno.h>
 
 #define usage() \
 do { \
 	ERROR("Use as %s [-bs block_size] [-qs queue_size]  [-fail-on-err] [ -seq ] [-mlock] [-rr | -pass-once] [-hit-size value] [-pf pattern_file] [-t run_time_sec] " \
-	"[-numa |-cpuset set | -remap-numa numa@numa_list[:numa@numa_list]...] [-write | -wp value] [ -engine aio|aio_linux|scsi|nvme|dio ] dev_list]", prog_name); \
+	"[-numa |-cpuset set | -remap-numa numa@numa_list[:numa@numa_list]...] [-threads-per-dev n] [-write | -wp value] [ -engine aio|aio_linux|scsi|nvme|dio ] dev_list]", prog_name); \
 	return -1; \
 } while(0)
 
@@ -31,6 +33,7 @@ int io_bench_parse_args(int argc, char **argv, io_bench_params_t *params)
 	argv++;
 	memset(params, 0, sizeof(*params));
 	params->engine = ENGINE_INVALID;
+	params->threads_per_dev = 1;
 
 	while (argc) {
 		int dec = 2;
@@ -53,6 +56,9 @@ int io_bench_parse_args(int argc, char **argv, io_bench_params_t *params)
 				usage();
 		} else if (!strcmp(argv[0], "-t")) {
 			if (params->run_time || argc == 1 || sscanf(argv[1], "%u", &params->run_time) != 1)
+				usage();
+		} else if (!strcmp(argv[0], "-threads-per-dev")) {
+			if (params->threads_per_dev != 1 || argc == 1 || sscanf(argv[1], "%u", &params->threads_per_dev) != 1)
 				usage();
 		} else if (!strcmp(argv[0], "-hit-size")) {
 			char tail[strlen(argv[1])+1];
@@ -167,6 +173,24 @@ int io_bench_parse_args(int argc, char **argv, io_bench_params_t *params)
 			ERROR("iobench: write-once mode is not compatible with rr mode");
 			usage();
 		}
+	}
+	if (!params->threads_per_dev)
+		params->threads_per_dev = 1;
+	if (params->threads_per_dev != 1) {
+		unsigned int n = params->ndevs * params->threads_per_dev;
+		unsigned int i;
+		char **devs = calloc(n, sizeof(char *));
+		if (!devs) {
+			ERROR("Cannot alloc for device names");
+			return -ENOMEM;
+		}
+		for (i = 0; i < params->ndevs; i++) {
+			unsigned int k;
+			for (k = 0; k < params->threads_per_dev; k++)
+				devs[i * params->threads_per_dev + k] = params->devices[i];
+		}
+		params->devices = devs;
+		params->ndevs = n;
 	}
 	return 0;
 }

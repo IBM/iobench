@@ -47,6 +47,7 @@ typedef struct {
 	io_eng_t engine;
 	char *pf_name;
 	char **devices;
+	unsigned int threads_per_dev;
 	unsigned int ndevs;
 	bool use_numa;
 	char *cpuset;
@@ -55,6 +56,7 @@ typedef struct {
 
 typedef struct {
 	uint64_t capacity;
+	uint64_t base_offset;
 	uint64_t offset;
 	uint64_t pf_offset;
 	void *buf_head;
