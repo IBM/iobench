@@ -227,13 +227,16 @@ static void term_handler(int signo)
 		pthread_exit(NULL);
 	}
 	kill_all_threads();
-	print_final_process_stats();
+	if (global_ctx.may_run)
+		print_final_process_stats();
 	join_all_threads();
 	if (io_eng->destroy_thread_ctx) {
-		for (i = 0; i < init_params.ndevs; i++)
-			io_eng->destroy_thread_ctx(global_ctx.ctx_array[i]);
+		for (i = 0; i < init_params.ndevs; i++) {
+			if (global_ctx.ctx_array[i])
+				io_eng->destroy_thread_ctx(global_ctx.ctx_array[i]);
+		}
 	}
-	exit(global_ctx.failed);
+	_exit(global_ctx.failed);
 }
 
 static uint64_t choose_seq_offset_atomic(io_bench_thr_ctx_t *thread_ctx, io_ctx_t *io)
