@@ -18,7 +18,7 @@ DECLARE_BFN
 
 #define usage() \
 do { \
-	ERROR("Use as %s [-bs block_size] [-qs queue_size]  [-fail-on-err] [ -seq ] [-mlock] [-rr | -write-once] [-hit-size value] [-pf pattern_file] [-t run_time_sec] " \
+	ERROR("Use as %s [-bs block_size] [-qs queue_size]  [-fail-on-err] [ -seq ] [-mlock] [-rr | -pass-once] [-hit-size value] [-pf pattern_file] [-t run_time_sec] " \
 	"[-numa |-cpuset set | -remap-numa numa@numa_list[:numa@numa_list]...] [-write | -wp value] [ -engine aio|aio_linux|scsi|nvme|dio ] dev_list]", prog_name); \
 	return -1; \
 } while(0)
@@ -109,10 +109,10 @@ int io_bench_parse_args(int argc, char **argv, io_bench_params_t *params)
 			if (params->mlock)
 				usage();
 			params->mlock = true; dec = 1;
-		} else if (!strcmp(argv[0], "-write-once")) {
-			if (params->wr_once)
+		} else if (!strcmp(argv[0], "-pass-once")) {
+			if (params->pass_once)
 				usage();
-			params->wr_once = true; dec = 1;
+			params->pass_once = true; dec = 1;
 		} else if (!strcmp(argv[0], "-engine")) {
 			if (params->engine != ENGINE_INVALID || argc == 1)
 				usage();
@@ -154,7 +154,7 @@ int io_bench_parse_args(int argc, char **argv, io_bench_params_t *params)
 	}
 	if (params->pf_name && !params->wp)
 		params->wp = 100;
-	if (params->wr_once) {
+	if (params->pass_once) {
 		params->seq = true;
 		if (params->wp && params->wp != 100) {
 			ERROR("iobench: write-once mode is for 100%% write only");

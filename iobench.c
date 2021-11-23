@@ -28,6 +28,7 @@ DECLARE_BFN
 #include <errno.h>
 
 #define SLEEP_INT_MS (2500)
+#define PROGRESS_INT_US (10000000)
 
 struct {
 	io_bench_stats_t read_stats;
@@ -38,6 +39,7 @@ struct {
 	uint64_t start;
 	io_bench_thr_ctx_t **ctx_array;
 	pthread_t *threads;
+	uint64_t progress_int;
 	pthread_t main_thread;
 	pthread_mutex_t init_mutex;
 	pthread_mutex_t run_mutex;
@@ -100,6 +102,12 @@ static void update_latencies(io_bench_stats_t *from, io_bench_stats_t *to)
 	__res__; \
 })
 
+static void print_stats_banner(void)
+{
+	INFO_NOPFX(" RdKIOPS  WrKIOPS  Rd MiB/s  Wr MiB/s      Rd Lat  MinRLat  MaxRLat      Wr Lat  MinWLat  MaxWLat");
+	INFO_NOPFX("-------------------------------------------------------------------------------------------------");
+}
+
 static void update_process_io_stats(uint64_t stamp, bool final)
 {
 	io_bench_stats_t read_stats = { 0 };
@@ -114,6 +122,21 @@ static void update_process_io_stats(uint64_t stamp, bool final)
 		write_stats.iops += global_ctx.ctx_array[i]->write_stats.iops;
 		update_latencies(&global_ctx.ctx_array[i]->read_stats, &read_stats);
 		update_latencies(&global_ctx.ctx_array[i]->write_stats, &write_stats);
+	}
+	if (unlikely(init_params.pass_once && stamp >= (global_ctx.progress_int + PROGRESS_INT_US))) {
+		char buf[1024];
+		size_t len=0;
+		double avg = 0;
+		unsigned int i;
+		for (i = 0; i < init_params.ndevs; i++) {
+			double pr = (global_ctx.ctx_array[i]->write_stats.iops + global_ctx.ctx_array[i]->read_stats.iops) * init_params.bs * 100.0 / global_ctx.ctx_array[i]->capacity;
+			if (len < sizeof(buf))
+				len += snprintf(buf+len, sizeof(buf) - len,  "%.2lf ", pr);
+			avg += pr;
+		}
+		global_ctx.progress_int = stamp;
+		INFO_NOPFX("Progress: %s avg: %.2lf", buf, avg / init_params.ndevs);
+		print_stats_banner();
 	}
 	if (!final) {
 		if (read_stats.min_lat == -1ULL)
@@ -309,7 +332,7 @@ static void prep_one_io(io_bench_thr_ctx_t *ctx, io_ctx_t *io, uint64_t stamp, b
 	io->offset = choose_random_offset(ctx, io, atomic);
 	if (unlikely(global_ctx.pf_map))
 		update_pf_offset(global_ctx.ctx_array[io->dev_idx], io, atomic || init_params.rr);
-	if (unlikely(init_params.wr_once && (ctx->write_stats.iops * init_params.bs) >= ctx->capacity)) {
+	if (unlikely(init_params.pass_once && ((ctx->write_stats.iops + ctx->read_stats.iops) * init_params.bs) >= ctx->capacity)) {
 		__sync_fetch_and_sub(&global_ctx.done_init, 1);
 		pthread_exit(NULL);
 	}
@@ -524,8 +547,7 @@ static int start_threads(void)
 	pthread_mutex_unlock(&global_ctx.run_mutex);
 
 	stop_stamp = (init_params.run_time) ? (get_uptime_us() + 1000000ULL * init_params.run_time) : -1ULL;
-	INFO_NOPFX(" RdKIOPS  WrKIOPS  Rd MiB/s  Wr MiB/s      Rd Lat  MinRLat  MaxRLat      Wr Lat  MinWLat  MaxWLat");
-	INFO_NOPFX("-------------------------------------------------------------------------------------------------");
+	print_stats_banner();
 
 	while (stamp < stop_stamp && global_ctx.done_init) {
 		usleep(SLEEP_INT_MS * 1000);
