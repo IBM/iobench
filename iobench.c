@@ -427,11 +427,16 @@ static void *thread_func(void *arg)
 		}
 	}
 
+	if (init_params.hit_size)
+		init_params.hit_size = (init_params.hit_size / init_params.bs) * init_params.bs;
+	global_ctx.ctx_array[idx]->capacity = (global_ctx.ctx_array[idx]->capacity / init_params.bs) * init_params.bs;
+
 	if (init_params.hit_size && init_params.hit_size < global_ctx.ctx_array[idx]->capacity)
 		global_ctx.ctx_array[idx]->capacity = init_params.hit_size;
-	global_ctx.ctx_array[idx]->capacity =  (global_ctx.ctx_array[idx]->capacity / init_params.bs) * init_params.bs;
-	if (!init_params.seq)
+	if (!init_params.seq) {
 		global_ctx.ctx_array[idx]->capacity /= init_params.qs;
+		global_ctx.ctx_array[idx]->capacity = (global_ctx.ctx_array[idx]->capacity / init_params.bs) * init_params.bs;
+	}
 	pthread_mutex_lock(&global_ctx.init_mutex);
 	global_ctx.done_init++;
 	if (global_ctx.done_init == init_params.ndevs)
