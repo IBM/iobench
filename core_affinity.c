@@ -400,14 +400,14 @@ unsigned int get_numa_id_of_block_device(char *device)
 
 	snprintf(name, sizeof(name), "/sys/class/block/%s/device/numa_node", p);
 	fd = open(name, O_RDONLY);
-	if (fd < 0) {
-		ERROR("Failed to open %s", name);
+	if (fd < 0)
 		return -1U;
-	}
 	rc = read(fd, buf, sizeof(buf)-1);
 	close(fd);
-	if (rc <= 0)
+	if (rc <= 0) {
+		ERROR("Failed to read %s", name);
 		return -1U;
+	}
 	buf[rc] = '\0';
 	if (sscanf(buf, "%d",&rc) != 1) {
 		ERROR("Failed to parse %s", name);
