@@ -39,9 +39,9 @@ int io_bench_parse_args(int argc, char **argv, io_bench_params_t *params)
 			if (params->bs || argc == 1)
 				usage();
 			if (sscanf(argv[1], "%u%s",  &params->bs, tail) == 2) {
-				if (!strcmp(tail, "M"))
+				if (!strcmp(tail, "M") || !strcmp(tail, "m"))
 					params->bs <<= 20;
-				else if (!strcmp(tail, "K"))
+				else if (!strcmp(tail, "K") || !strcmp(tail, "k"))
 					params->bs <<= 10;
 				else
 					usage();
@@ -59,11 +59,11 @@ int io_bench_parse_args(int argc, char **argv, io_bench_params_t *params)
 			if (params->hit_size || argc == 1)
 				usage();
 			if (sscanf(argv[1], "%lu%s",  &params->hit_size, tail) == 2) {
-				if (!strcmp(tail, "G"))
+				if (!strcmp(tail, "G") || !strcmp(tail, "g"))
 					params->hit_size <<= 30;
-				else if (!strcmp(tail, "M"))
+				else if (!strcmp(tail, "M") || !strcmp(tail, "m"))
 					params->hit_size <<= 20;
-				else if (!strcmp(tail, "K"))
+				else if (!strcmp(tail, "K") || !strcmp(tail, "k"))
 					params->hit_size <<= 10;
 				else
 					usage();
