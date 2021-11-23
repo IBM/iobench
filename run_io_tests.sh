@@ -99,10 +99,23 @@ EOF
 	get_results ${LOG}
 }
 
+HIT_SIZE="20M"
+
+function choose_qs()
+{
+	case $1 in
+		64K) echo 64;;
+		256K) echo 16;;
+		*) echo 32;;
+	esac
+}
+
 function run_test()
 {
 	local args=""
 	local TST="$1"
+	local BS=""
+	local QS=""
 
 	if [ "$(echo ${TST} | grep -E '^read')" != "" ]; then
 		args=""
@@ -120,33 +133,97 @@ function run_test()
 		echo "Invalid test" >&2
 		return 1
 	fi
+	if [ "$(echo $TST| grep numa)" != "" ]; then
+		 args="${args} -numa"
+	fi
 	if [ "$(echo $TST| grep hit)" != "" ]; then
-		args="${args} -hit-size 20M" 
+		args="${args} -hit-size ${HIT_SIZE}" 
 	elif [ "$(echo $TST| grep miss)" == "" ]; then
 		echo "Invalid test" >&2
 		return 1
 	fi
-	args="${args} -bs $(echo ${TST} | awk -F _ '{print $NF}')"
+	BS="$(echo ${TST} | awk -F _ '{print $NF}')"
+	if [ "$(echo ${args} | grep '\-qs')" = "" ]; then
+		QS="-qs $(choose_qs ${BS})"
+	fi
+	args="${args} -bs ${BS} ${QS}"
+	args="$(echo ${args} ${extra_args} | sed -e 's/  *$//')"
 	rm -f  ~/.io_bench_params
-	echo "args=\"${args} ${extra_args}\"" >  ~/.io_bench_params
+	echo "args=\"${args}\"" >  ~/.io_bench_params
 	echo -n "$TST: "
 	execute_test ${TST} 60
+}
+
+function choose_numa()
+{
+	if [ "$2" = 1 ]; then
+		return 0
+	fi
+	case $1 in
+		64K|128K|256K)
+			return 0;;
+		*) echo "_numa";;
+	esac
 }
 
 function main()
 {
 	local SFX=""
 	local h=""
+	local noauto_numa=0
+	local NUMA=0
+	local RR=0
+	local TST="read"
+	local WP=""
 
-	SFX=$(echo ${extra_args} | grep engine | sed -e 's/.*engine //' | awk '{print $1}')
+	while [ $# -ne 0 ]
+	do
+		if [ "$1" = "-engine" ]; then
+			shift
+			extra_args="${extra_args} -engine $1"
+			SFX="$1"
+			shift
+		elif [ "$1" "-numa" ]; then
+			shift
+			noauto_numa=1
+			NUMA=1
+		elif [ "$1" = "-numa" ]; then
+			shift
+			noauto_numa=1
+		elif [ "$1" = "-rr" ]; then
+			shift
+			extra_args="${extra_args} -rr"
+			RR=1
+		elif [ "$1" = "-qs" ]; then
+			shift
+			extra_args="${extra_args} -qs $1"
+			shift
+		elif [ "$1" = "-hit-size" ]; then
+			shift
+			HIT_SIZE="$1"
+			shift
+		elif [ "$1" = "-w" ]; then
+			TST=write
+			shift
+		elif [ "$1" = "-wp" ]; then
+			shift
+			WP=$1
+			shift
+			TST="rw_$[100-${WP}]_${WP}"
+		else
+			echo "Wrong use: allowed args: -numa|-nonuma -qs val -rr -engine eng" >&2
+			return 1
+		fi
+	done
 	if [ "${SFX}" = "" ]; then
-		SFX="aio"
 		extra_args="${extra_args} -engine aio_linux"
+		SFX=aio
 	fi
-	if [ "$(echo ${extra_args} | grep '\-rr')" != "" ]; then
+
+	if [ "${RR}" = 1 ]; then
 		SFX="${SFX}_rr"
 	fi
-	if [ "$(echo ${extra_args} | grep '\-numa')" != "" ]; then
+	if [ "${NUMA}" = 1 ]; then
 		SFX="${SFX}_numa"
 	fi
 	mkdir -p ${HOME}/iobench_results
@@ -157,22 +234,22 @@ function main()
  
 	for i in 512 4K 8K 16K 32K 64K 128K 256K
 	do
-		run_test read_rnd_hit_${SFX}_$i
+		run_test ${TST}_rnd_hit_${SFX}$(choose_numa $i ${noauto_numa})_$i
 	done
 
 	for i in 512 4K 8K 16K 32K 64K 128K 256K
 	do
-		run_test read_seq_hit_${SFX}_$i
+		run_test ${TST}_seq_hit_${SFX}$(choose_numa $i ${noauto_numa})_$i
 	done
 
 	for i in 512 4K 8K 16K 32K 64K 128K 256K
 	do
-		run_test read_rnd_miss_${SFX}_$i
+		run_test ${TST}_rnd_miss_${SFX}$(choose_numa $i ${noauto_numa})_$i
 	done
 
 	for i in 512 4K 8K 16K 32K 64K 128K 256K
 	do
-		run_test read_seq_miss_${SFX}_$i
+		run_test ${TST}_seq_miss_${SFX}$(choose_numa $i ${noauto_numa})_$i
 	done
 }
 

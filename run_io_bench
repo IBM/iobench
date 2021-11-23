@@ -5,7 +5,7 @@ if [ -e ~/.io_bench_params ]; then
 fi
 
 if [ "$(echo ${args} | grep '\-qs')" = "" ]; then
-	args="${args} -qs 64"
+	args="${args} -qs 32"
 fi
 
 if [ "$(echo ${args} | grep '\-qs' | sed -e 's/.*-qs//' | awk '{print $1}')" = 1 ]; then
