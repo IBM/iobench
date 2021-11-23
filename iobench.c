@@ -29,6 +29,7 @@ DECLARE_BFN
 
 #define SLEEP_INT_MS (2500)
 #define PROGRESS_INT_US (10000000)
+#define ALIGN(__addr__, __size__) (((__addr__) + (__size__) - 1) & ~((__size__) - 1))
 
 struct {
 	io_bench_stats_t read_stats;
@@ -410,10 +411,19 @@ static void *thread_func(void *arg)
 		int flags = (init_params.mlock) ? MAP_LOCKED : 0;
 		size_t map_size = init_params.bs;
 		map_size *= init_params.qs;
+		map_size = ALIGN(map_size, 4096);
 		global_ctx.ctx_array[idx]->buf_head = mmap(NULL, map_size, PROT_READ|PROT_WRITE, MAP_SHARED|MAP_ANONYMOUS|flags, -1, 0);
 		if (global_ctx.ctx_array[idx]->buf_head == MAP_FAILED) {
 			ERROR("Thread %u failed to allocate buffers", idx);
 			handle_thread_failure();
+		}
+		if (init_params.wp || !init_params.pf_name) {
+			int *buf = (void *)global_ctx.ctx_array[idx]->buf_head;
+			while (map_size) {
+				buf[0] = rand_r(&global_ctx.ctx_array[idx]->seed);
+				buf++;
+				map_size -= sizeof(int);
+			}
 		}
 	}
 
