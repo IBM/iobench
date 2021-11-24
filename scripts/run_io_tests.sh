@@ -8,9 +8,9 @@ function kill_tests()
 	local h=""
 	for h in ${HOSTS}
 	do
-		ssh $h killall iobench
+		ssh $h killall iobench run_script run_io_bench
 	done
-	killall iobench
+	killall iobench run_script run_io_bench
 	exit 1
 }
 
@@ -93,9 +93,10 @@ EOF
 	fi
 	for h in ${HOSTS}
 	do
-		ssh $h killall iobench
+		ssh $h killall iobench run_script run_io_bench
 	done
 	killall iobench
+	sleep 5
 	get_results ${LOG}
 }
 
@@ -104,7 +105,6 @@ HIT_SIZE="20M"
 function choose_qs()
 {
 	case $1 in
-		64K) echo 64;;
 		256K) echo 16;;
 		*) echo 32;;
 	esac
@@ -183,11 +183,11 @@ function main()
 			extra_args="${extra_args} -engine $1"
 			SFX="$1"
 			shift
-		elif [ "$1" "-numa" ]; then
+		elif [ "$1" = "-numa" ]; then
 			shift
 			noauto_numa=1
 			NUMA=1
-		elif [ "$1" = "-numa" ]; then
+		elif [ "$1" = "-nonuma" ]; then
 			shift
 			noauto_numa=1
 		elif [ "$1" = "-rr" ]; then
@@ -231,12 +231,14 @@ function main()
 	do
 		ssh $h mkdir -p ${HOME}/iobench_results
 	done
- 
+
+        #HIT_SIZE=12800K
 	for i in 512 4K 8K 16K 32K 64K 128K 256K
 	do
 		run_test ${TST}_rnd_hit_${SFX}$(choose_numa $i ${noauto_numa})_$i
 	done
 
+	#HIT_SIZE=6400K
 	for i in 512 4K 8K 16K 32K 64K 128K 256K
 	do
 		run_test ${TST}_seq_hit_${SFX}$(choose_numa $i ${noauto_numa})_$i
@@ -253,9 +255,8 @@ function main()
 	done
 }
 
-extra_args="$@"
 trap kill_tests SIGINT
 trap kill_tests SIGTERM
 
-main
+main $@
 
