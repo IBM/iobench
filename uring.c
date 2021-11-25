@@ -24,6 +24,7 @@ DECLARE_BFN
 #include <sys/syscall.h>
 #include <poll.h>
 #include <errno.h>
+#include <string.h>
 
 
 typedef struct {
@@ -88,6 +89,7 @@ int uring_handle_create(uring_params_t *params, uring_handle_t **phandle)
 	handle->thr_ctx = params->thr_ctx;
 	handle->poll_idle_user_ms = params->poll_idle_user_ms;
 	memcpy(handle->fds, params->fds, params->fd_count * sizeof(int));
+	handle->fds_count = params->fd_count;
 	if (params->poll_idle_kernel_ms) {
 		handle->params.sq_thread_idle = params->poll_idle_kernel_ms;
 		handle->params.flags = IORING_SETUP_SQPOLL;
@@ -158,7 +160,7 @@ int uring_handle_create(uring_params_t *params, uring_handle_t **phandle)
 	handle->cq_ptrs.head = p + handle->params.cq_off.head;
 	handle->cq_ptrs.tail = p + handle->params.cq_off.tail;
 	handle->cq_ptrs.ring_mask = p + handle->params.cq_off.ring_mask;
-	handle->cq_ptrs.flags = p + handle->params.cq_off.flags;
+	handle->cq_ptrs.flags = NULL; //older kernels do not have it, we do not use it
 	handle->cqes = p + handle->params.cq_off.cqes;
 
 	*phandle = handle;
@@ -170,6 +172,10 @@ cleanup:
 
 void uring_handle_destroy(uring_handle_t *handle)
 {
+	if (!handle)
+		return;
+	if (handle->uring_fd >= 0)
+		close(handle->uring_fd);
 	if (handle->sq_indices)
 		munmap(((void *)handle->sq_indices) - handle->params.sq_off.array,  handle->params.sq_off.array +  handle->params.sq_entries * sizeof(uint32_t));
 	if (handle->sqes)
@@ -180,9 +186,18 @@ void uring_handle_destroy(uring_handle_t *handle)
 		free(handle->fds);
 	if (handle->event_fd >= 0)
 		close(handle->event_fd);
-	if (handle->uring_fd >= 0)
-		close(handle->uring_fd);
 	free(handle);
+}
+
+static void inline handle_one_cqe(uring_handle_t *handle, uint32_t idx)
+{
+	io_ctx_t *io_ctx = (void *)handle->cqes[idx].user_data;
+	io_ctx->status = handle->cqes[idx].res;
+	if (io_ctx->status > 0)
+		io_ctx->status = 0;
+	io_bench_requeue_io(handle->thr_ctx, io_ctx);
+	__sync_synchronize();
+	(*handle->cq_ptrs.head)++;
 }
 
 static void clean_completions(uring_handle_t *handle)
@@ -191,11 +206,14 @@ static void clean_completions(uring_handle_t *handle)
 		uint32_t head = (*handle->cq_ptrs.head) & (*handle->cq_ptrs.ring_mask);
 		uint32_t tail = (*handle->cq_ptrs.tail) & (*handle->cq_ptrs.ring_mask);
 		uint32_t i;
-		for (i = 0; i < (tail-head); i++) {
-			io_ctx_t *io_ctx = (void *)handle->cqes[i+head].user_data;
-			io_ctx->status = handle->cqes[i+head].res;
-			io_bench_requeue_io(handle->thr_ctx, io_ctx);
-			*handle->cq_ptrs.head = tail;
+		if (head < tail) {
+			for (i = head; i < tail; i++)
+				handle_one_cqe(handle, i);
+		} else {
+			for (i = head; i < handle->params.cq_entries; i++)
+				handle_one_cqe(handle, i);
+			for (i = 0; i < tail; i++)
+				handle_one_cqe(handle, i);
 		}
 	}
 }
@@ -252,7 +270,7 @@ int uring_submit_io(uring_handle_t *handle, io_ctx_t *ioctx, uint32_t size)
 	__sync_synchronize();
 	(*handle->sq_ptrs.tail)++;
 
-	if (handle->params.sq_thread_idle)
+	if (!handle->params.sq_thread_idle)
 		return io_uring_enter(handle->uring_fd, 1, 0, 0, NULL);
 	if (*handle->sq_ptrs.flags & IORING_SQ_NEED_WAKEUP)
 		return io_uring_enter(handle->uring_fd, 0, 0, IORING_ENTER_SQ_WAKEUP, NULL);

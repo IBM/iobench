@@ -20,6 +20,7 @@
 typedef enum {
 	ENGINE_AIO,
 	ENGINE_AIO_LINUX,
+	ENGINE_AIO_URING,
 	ENGINE_DIO,
 	ENGINE_SCSI,
 	ENGINE_NVNE,
@@ -38,11 +39,15 @@ typedef struct {
 	uint32_t run_time;
 	uint32_t bs;
 	uint16_t qs;
+	uint16_t poll_idle_kernel_ms;
+	uint16_t poll_idle_user_ms;
+	uint16_t poll_kcpu_offset;
 	bool fail_on_err;
 	bool seq;
 	bool rr;
 	bool mlock;
 	bool pass_once;
+	bool poll;
 	uint8_t wp;
 	io_eng_t engine;
 	char *pf_name;
@@ -78,7 +83,7 @@ typedef struct {
 } io_ctx_t;
 
 typedef struct {
-	int (*init_thread_ctx)(io_bench_thr_ctx_t **pctx, io_bench_params_t *params, unsigned int dev_idx);
+	int (*init_thread_ctx)(io_bench_thr_ctx_t **pctx, io_bench_params_t *params, void *buf_head, unsigned int dev_idx, unsigned int poll_cpu);
 	void (*stop_thread_ctx)(io_bench_thr_ctx_t *ctx);
 	void (*destroy_thread_ctx)(io_bench_thr_ctx_t *ctx);
 	int (*poll_completions)(io_bench_thr_ctx_t *ctx, int n);
@@ -94,6 +99,7 @@ void io_bench_complete_and_prep_io(io_bench_thr_ctx_t *ctx, io_ctx_t *io);
 
 extern io_eng_def_t aio_engine;
 extern io_eng_def_t aio_linux_engine;
+extern io_eng_def_t aio_uring_engine;
 extern io_eng_def_t dio_engine;
 
 #endif

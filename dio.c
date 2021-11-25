@@ -29,7 +29,7 @@ DECLARE_BFN
 
 
 static void dio_destroy_thread_ctx(io_bench_thr_ctx_t *ctx);
-static int dio_init_thread_ctx(io_bench_thr_ctx_t **pctx, io_bench_params_t *params, unsigned int dev_idx);
+static int dio_init_thread_ctx(io_bench_thr_ctx_t **pctx, io_bench_params_t *params, void *buf_head, unsigned int dev_idx, unsigned int cpu);
 static int dio_poll_completions(io_bench_thr_ctx_t *ctx, int n);
 static io_ctx_t *dio_get_io_ctx(io_bench_thr_ctx_t *ctx, uint16_t slot);
 static int dio_queue_io(io_bench_thr_ctx_t *ctx, io_ctx_t *io);
@@ -141,7 +141,7 @@ static void *thread_func(void *arg)
 	return NULL;
 }
 
-static int dio_init_thread_ctx(io_bench_thr_ctx_t **pctx, io_bench_params_t *params, unsigned int dev_idx)
+static int dio_init_thread_ctx(io_bench_thr_ctx_t **pctx, io_bench_params_t *params, void *buf_head, unsigned int dev_idx, unsigned int cpu)
 {
 	dio_thr_ctx_t *dio_thr_ctx;
 	unsigned int i;

@@ -61,8 +61,10 @@ int aio_linux_handle_create(aio_linux_params_t *params, aio_linux_handle_t **pha
 
 void aio_linux_handle_destroy(aio_linux_handle_t *handle)
 {
-	free(handle->iocbs);
-	free(handle);
+	if (handle) {
+		free(handle->iocbs);
+		free(handle);
+	}
 }
 
 int aio_linux_poll(aio_linux_handle_t *handle, int n)
@@ -97,6 +99,7 @@ int aio_linux_submit_io(aio_linux_handle_t *handle, io_ctx_t *io, uint32_t size)
 	else
 		io_prep_pwrite(iocb, fd, io->buf, size, io->offset);
 
+	iocb->data = io;
 	rc = io_submit(handle->handle, 1, io_list);
 	return (rc > 0) ? 0 : (rc < 0) ? rc : -1;
 }

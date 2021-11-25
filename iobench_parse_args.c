@@ -21,7 +21,8 @@ DECLARE_BFN
 #define usage() \
 do { \
 	ERROR("Use as %s [-bs block_size] [-qs queue_size]  [-fail-on-err] [ -seq ] [-mlock] [-rr | -pass-once] [-hit-size value] [-pf pattern_file] [-t run_time_sec] " \
-	"[-numa |-cpuset set | -remap-numa numa@numa_list[:numa@numa_list]...] [-threads-per-dev n] [-write | -wp value] [ -engine aio|aio_linux|scsi|nvme|dio ] dev_list]", prog_name); \
+	"[-numa |-cpuset set | -remap-numa numa@numa_list[:numa@numa_list]...] [-poll-idle-kernel-ms value ] [-poll-idle-user-ms value ] [-poll-kcpu-offset val ] " \
+	"[-threads-per-dev n] [-write | -wp value] [ -engine aio|aio_linux|uring|scsi|nvme|dio ] dev_list]", prog_name); \
 	return -1; \
 } while(0)
 
@@ -56,6 +57,15 @@ int io_bench_parse_args(int argc, char **argv, io_bench_params_t *params)
 				usage();
 		} else if (!strcmp(argv[0], "-t")) {
 			if (params->run_time || argc == 1 || sscanf(argv[1], "%u", &params->run_time) != 1)
+				usage();
+		} else if (!strcmp(argv[0], "-poll-idle-kernel-ms")) {
+			if (params->run_time || argc == 1 || sscanf(argv[1], "%hu", &params->poll_idle_kernel_ms) != 1)
+				usage();
+		} else if (!strcmp(argv[0], "-poll-idle-user-ms")) {
+			if (params->run_time || argc == 1 || sscanf(argv[1], "%hu", &params->poll_idle_user_ms) != 1)
+				usage();
+		} else if (!strcmp(argv[0], "-poll-kcpu-offset")) {
+			if (params->run_time || argc == 1 || sscanf(argv[1], "%hu", &params->poll_kcpu_offset) != 1)
 				usage();
 		} else if (!strcmp(argv[0], "-threads-per-dev")) {
 			if (params->threads_per_dev != 1 || argc == 1 || sscanf(argv[1], "%u", &params->threads_per_dev) != 1)
@@ -126,6 +136,8 @@ int io_bench_parse_args(int argc, char **argv, io_bench_params_t *params)
 				params->engine = ENGINE_AIO;
 			else if (!strcmp(argv[1], "aio_linux"))
 				params->engine = ENGINE_AIO_LINUX;
+			else if (!strcmp(argv[1], "uring"))
+				params->engine = ENGINE_AIO_URING;
 			else if (!strcmp(argv[1], "dio"))
 				params->engine = ENGINE_DIO;
 			else if (!strcmp(argv[1], "scsi"))

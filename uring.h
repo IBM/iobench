@@ -22,7 +22,7 @@ typedef struct {
 	void *mem;
 	size_t mem_size;
 	int queue_size;
-	int *fds;
+	const int *fds;
 	unsigned int fd_count;
 	uint32_t poll_idle_kernel_ms;
 	uint32_t poll_idle_user_ms;

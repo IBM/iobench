@@ -396,38 +396,42 @@ static void *thread_func(void *arg)
 	uint16_t i;
 	unsigned int idx = (unsigned long)(arg) & 0xffff;
 	unsigned int cpu = (unsigned long)(arg) >> 16;
+	void *buf_head;
+	int flags = (init_params.mlock) ? MAP_LOCKED : 0;
+	size_t map_size = init_params.bs;
+	unsigned int kcpu = -1;
 
-	if (cpu < 0xffff)
+	if (cpu < 0xffff) {
 		set_thread_affinity(cpu);
+		if (init_params.poll_kcpu_offset)
+			kcpu = cpu + init_params.poll_kcpu_offset;
+	}
 
-	rc = io_eng->init_thread_ctx(&global_ctx.ctx_array[idx], &init_params, idx);
+	map_size *= init_params.qs;
+	map_size = ALIGN(map_size, 4096);
+	buf_head = mmap(NULL, map_size, PROT_READ|PROT_WRITE, MAP_SHARED|MAP_ANONYMOUS|flags, -1, 0);
+	if (buf_head == MAP_FAILED) {
+	ERROR("Thread %u failed to allocate buffers", idx);
+		handle_thread_failure();
+	}
+
+	rc = io_eng->init_thread_ctx(&global_ctx.ctx_array[idx], &init_params, buf_head, idx, kcpu);
 	if (rc) {
 		ERROR("Thread %u failed to init", idx);
 		handle_thread_failure();
 	}
-	global_ctx.ctx_array[idx]->thr_idx = idx;
-	global_ctx.ctx_array[idx]->seed = get_uptime_us() + idx;
-
-	if (!io_eng->need_mr_buffers) {
-		int flags = (init_params.mlock) ? MAP_LOCKED : 0;
-		size_t map_size = init_params.bs;
-		map_size *= init_params.qs;
-		map_size = ALIGN(map_size, 4096);
-		global_ctx.ctx_array[idx]->buf_head = mmap(NULL, map_size, PROT_READ|PROT_WRITE, MAP_SHARED|MAP_ANONYMOUS|flags, -1, 0);
-		if (global_ctx.ctx_array[idx]->buf_head == MAP_FAILED) {
-			ERROR("Thread %u failed to allocate buffers", idx);
-			handle_thread_failure();
-		}
-		if (init_params.wp || !init_params.pf_name) {
-			int *buf = (void *)global_ctx.ctx_array[idx]->buf_head;
-			while (map_size) {
-				buf[0] = rand_r(&global_ctx.ctx_array[idx]->seed);
-				buf++;
-				map_size -= sizeof(int);
-			}
+	if (!io_eng->need_mr_buffers)
+		global_ctx.ctx_array[idx]->buf_head = buf_head;
+	if (init_params.wp || !init_params.pf_name) {
+		int *buf = buf_head;
+		while (map_size) {
+			buf[0] = rand_r(&global_ctx.ctx_array[idx]->seed);
+			buf++;
+			map_size -= sizeof(int);
 		}
 	}
-
+	global_ctx.ctx_array[idx]->thr_idx = idx;
+	global_ctx.ctx_array[idx]->seed = get_uptime_us() + idx;
 
 	if (init_params.hit_size && init_params.hit_size < global_ctx.ctx_array[idx]->capacity)
 		global_ctx.ctx_array[idx]->capacity = init_params.hit_size;
@@ -592,6 +596,7 @@ int main(int argc, char *argv[])
 	switch (init_params.engine) {
 		case ENGINE_AIO: io_eng = &aio_engine; break;
 		case ENGINE_AIO_LINUX: io_eng = &aio_linux_engine; break;
+		case ENGINE_AIO_URING: io_eng = &aio_uring_engine; break;
 		case ENGINE_DIO: io_eng = &dio_engine; break;
 #if 0
 		case ENGINE_NVNE: io_eng = &nvme_engine; break;
