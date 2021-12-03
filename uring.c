@@ -40,6 +40,7 @@ typedef struct uring_handle
 	int fds_count;
 	int uring_fd;
 	int event_fd;
+	bool memreg_done;
 	io_bench_thr_ctx_t *thr_ctx;
 	uint32_t poll_idle_user_ms;
 	uint32_t *sq_indices;
@@ -113,9 +114,13 @@ int uring_handle_create(uring_params_t *params, uring_handle_t **phandle)
 	iov.iov_base = params->mem;
 	iov.iov_len = params->mem_size;
 	if (io_uring_register(handle->uring_fd, IORING_REGISTER_BUFFERS, &iov, 1)) {
-		rc = errno ? -errno : -EPERM;
-		ERROR("Failed to register buffers");
-		goto cleanup;
+		static bool log_once = false;
+		if (!log_once) {
+			ERROR("Failed to register buffers");
+			log_once = true;
+		}
+	} else {
+		handle->memreg_done = true;
 	}
 	if (io_uring_register(handle->uring_fd, IORING_REGISTER_FILES, handle->fds, handle->fds_count)) {
 		rc = errno ? -errno : -EPERM;
@@ -254,14 +259,23 @@ int uring_submit_io(uring_handle_t *handle, io_ctx_t *ioctx, uint32_t size)
 	uint32_t idx = ioctx->slot_idx;
 	struct io_uring_sqe *sqe = handle->sqes + idx;
 	uint32_t sq_tail;
+	struct iovec iov;
 
 	memset(sqe, 0, sizeof(*sqe));
-	sqe->opcode = (!ioctx->write) ?  IORING_OP_READ_FIXED : IORING_OP_WRITE_FIXED;
+	if (unlikely(!handle->memreg_done)) {
+		sqe->opcode = (!ioctx->write) ?  IORING_OP_READV : IORING_OP_WRITEV;
+		iov.iov_base = ioctx->buf;
+		iov.iov_len = size;
+		sqe->addr = (uint64_t)&iov;
+		sqe->len = 1;
+	} else {
+		sqe->opcode = (!ioctx->write) ?  IORING_OP_READ_FIXED : IORING_OP_WRITE_FIXED;
+		sqe->addr = (uint64_t)ioctx->buf;
+		sqe->len = size;
+	}
 	sqe->flags = IOSQE_FIXED_FILE;
 	sqe->fd = ioctx->dev_idx;
 	sqe->off = ioctx->offset;
-	sqe->addr = (uint64_t)ioctx->buf;
-	sqe->len = size;
 	sqe->user_data = (uint64_t)ioctx;
 
 	sq_tail = (*handle->sq_ptrs.tail) & (*handle->sq_ptrs.ring_mask);
