@@ -59,13 +59,13 @@ int io_bench_parse_args(int argc, char **argv, io_bench_params_t *params)
 			if (params->run_time || argc == 1 || sscanf(argv[1], "%u", &params->run_time) != 1)
 				usage();
 		} else if (!strcmp(argv[0], "-poll-idle-kernel-ms")) {
-			if (params->run_time || argc == 1 || sscanf(argv[1], "%hu", &params->poll_idle_kernel_ms) != 1)
+			if (params->poll_idle_kernel_ms || argc == 1 || sscanf(argv[1], "%hu", &params->poll_idle_kernel_ms) != 1)
 				usage();
 		} else if (!strcmp(argv[0], "-poll-idle-user-ms")) {
-			if (params->run_time || argc == 1 || sscanf(argv[1], "%hu", &params->poll_idle_user_ms) != 1)
+			if (params->poll_idle_user_ms || argc == 1 || sscanf(argv[1], "%hu", &params->poll_idle_user_ms) != 1)
 				usage();
 		} else if (!strcmp(argv[0], "-poll-kcpu-offset")) {
-			if (params->run_time || argc == 1 || sscanf(argv[1], "%hu", &params->poll_kcpu_offset) != 1)
+			if (params->poll_kcpu_offset || argc == 1 || sscanf(argv[1], "%hu", &params->poll_kcpu_offset) != 1)
 				usage();
 		} else if (!strcmp(argv[0], "-threads-per-dev")) {
 			if (params->threads_per_dev != 1 || argc == 1 || sscanf(argv[1], "%u", &params->threads_per_dev) != 1)
