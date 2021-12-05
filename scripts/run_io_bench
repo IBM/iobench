@@ -8,11 +8,11 @@ if [ "$(echo ${args} | grep '\-qs')" = "" ]; then
 	args="${args} -qs 32"
 fi
 
-if [ "$(echo ${args} | grep '\-qs' | sed -e 's/.*-qs//' | awk '{print $1}')" = 1 ]; then
-	echo ${HOME}/iobench/iobench ${args} /dev/dm* 
-	${HOME}/iobench/iobench ${args} /dev/dm* 	
+if [ "$(echo ${args} | grep /dev/)" = "" ]; then
+	echo ${HOME}/run_iobench/iobench ${args} /dev/dm*
+	${HOME}/run_iobench/iobench ${args} /dev/dm*
 else
-	echo ${HOME}/iobench/iobench ${args} -threads-per-dev 2  /dev/dm*
-	${HOME}/iobench/iobench ${args} -threads-per-dev 2 /dev/dm*
+	echo ${HOME}/run_iobench/iobench ${args}
+	${HOME}/run_iobench/iobench ${args}
 fi
 echo EXITED

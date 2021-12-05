@@ -7,19 +7,19 @@ if [ "$(hostname)" != iota ]; then
 		do
 			sleep 0.1
 		done
-		"${HOME}/script"
+		"${HOME}/run_iobench/script"
 		rm -f "${HOME}/.vrun_lock"
 	done
 	exit 1
 fi
-rm -f "${HOME}/script"
-ssh sigma rm -f "${HOME}/script"
-ssh zeta rm -f "${HOME}/script"
-echo $@ > "${HOME}/script"
-chmod +x "${HOME}/script"
-scp -p "${HOME}/script" zeta:
-scp -p "${HOME}/script" sigma:
+rm -f "${HOME}/run_iobench/script"
+ssh sigma rm -f "${HOME}/run_iobench/script"
+ssh zeta rm -f "${HOME}/run_iobench/script"
+echo $@ > "${HOME}/run_iobench/script"
+chmod +x "${HOME}/run_iobench/script"
+scp -p "${HOME}/run_iobench/script" "${HOME}/run_iobench/iobench" zeta:"${HOME}/run_iobench"
+scp -p "${HOME}/run_iobench/script" "${HOME}/run_iobench/iobench" sigma:/"${HOME}/run_iobench"
 ssh sigma touch "${HOME}/.vrun_lock"
 ssh zeta touch "${HOME}/.vrun_lock"
-"${HOME}/script"
+"${HOME}/run_iobench/script"
 

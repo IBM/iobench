@@ -45,7 +45,7 @@ function get_results()
 	done
 	case ${LOG} in
 	*read*) echo ${res} | awk '{print $1, $3}';;
-	*write*) echo ${res} | awk '{print $2, $3}';;
+	*write*) echo ${res} | awk '{print $2, $4}';;
 	*) echo ${res};;
 	esac
 }
@@ -56,11 +56,11 @@ function execute_test()
 	local LOG="${HOME}/iobench_results/$1.log"
 	local TIME="$2"
 
-	cd ${HOME}/iobench
+	cd ${HOME}/run_iobench
 	rm -f ./run_script
 	cat << EOF > run_script
 #!/bin/bash
-cd ${HOME}/iobench
+cd ${HOME}/run_iobench
 rm -f ${LOG}
 ulimit -n 40960
 ./run_io_bench >& ${LOG}
@@ -68,7 +68,7 @@ EOF
 	chmod 755 run_script
 	for h in ${HOSTS}
 	do
-		scp run_io_bench run_script $h:iobench >&/dev/null &&
+		scp run_script $h:${HOME}/run_iobench >&/dev/null &&
 		scp ~/.io_bench_params $h: >& /dev/null
 		if [ $? -ne 0 ]; then
 			echo "Failed to copy files to $h" >&2
@@ -78,9 +78,9 @@ EOF
 
 	for h in ${HOSTS}
 	do
-		ssh $h ${HOME}/iobench/run_script &
+		ssh $h ${HOME}/run_iobench/run_script &
 	done
-	${HOME}/iobench/run_script &
+	${HOME}/run_iobench/run_script &
 	sleep ${TIME}
 	for h in ${HOSTS}
 	do
@@ -105,8 +105,26 @@ HIT_SIZE="20M"
 function choose_qs()
 {
 	case $1 in
-		256K) echo 16;;
-		*) echo 32;;
+		256K|128K|64K) echo "-qs 4";;
+		32K) echo "-qs 8 -threads-per-dev 2";;
+		16K) echo "-qs 32";;
+		*) echo "-qs 128 -threads-per-dev 2";;
+	esac
+}
+
+FORCE_NUMA=""
+function choose_numa()
+{
+	if [ "${FORCE_NUMA}" = "nonuma" ]; then
+		echo ""
+		return 0
+	elif [  "${FORCE_NUMA}" = "numa" ]; then
+		echo "-numa"
+		return 0
+	fi
+	case $1 in
+		32K) echo "-numa";;
+		*) echo "-cpuset 0-31";;
 	esac
 }
 
@@ -120,9 +138,9 @@ function run_test()
 	if [ "$(echo ${TST} | grep -E '^read')" != "" ]; then
 		args=""
 	elif [ "$(echo ${TST} | grep -E '^write')" != "" ]; then
-		args="-w"
+		args="-write"
 	elif [ "$(echo ${TST} | grep -E '^rw')" != "" ]; then
-		args="=-wp  $(echo ${TST} | awk -F _ '{print $3}')"
+		args="-wp  $(echo ${TST} | awk -F _ '{print $3}')"
 	else
 		echo "Invalid test" >&2
 		return 1
@@ -133,9 +151,6 @@ function run_test()
 		echo "Invalid test" >&2
 		return 1
 	fi
-	if [ "$(echo $TST| grep numa)" != "" ]; then
-		 args="${args} -numa"
-	fi
 	if [ "$(echo $TST| grep hit)" != "" ]; then
 		args="${args} -hit-size ${HIT_SIZE}" 
 	elif [ "$(echo $TST| grep miss)" == "" ]; then
@@ -144,9 +159,9 @@ function run_test()
 	fi
 	BS="$(echo ${TST} | awk -F _ '{print $NF}')"
 	if [ "$(echo ${args} | grep '\-qs')" = "" ]; then
-		QS="-qs $(choose_qs ${BS})"
+		QS="$(choose_qs ${BS})"
 	fi
-	args="${args} -bs ${BS} ${QS}"
+	args="${args} -bs ${BS} ${QS} $(choose_numa ${BS})"
 	args="$(echo ${args} ${extra_args} | sed -e 's/  *$//')"
 	rm -f  ~/.io_bench_params
 	echo "args=\"${args}\"" >  ~/.io_bench_params
@@ -154,24 +169,10 @@ function run_test()
 	execute_test ${TST} 60
 }
 
-function choose_numa()
-{
-	if [ "$2" = 1 ]; then
-		return 0
-	fi
-	case $1 in
-		64K|128K|256K)
-			return 0;;
-		*) echo "_numa";;
-	esac
-}
-
 function main()
 {
 	local SFX=""
 	local h=""
-	local noauto_numa=0
-	local NUMA=0
 	local RR=0
 	local TST="read"
 	local WP=""
@@ -185,10 +186,12 @@ function main()
 			shift
 		elif [ "$1" = "-numa" ]; then
 			shift
+			FORCE_NUMA="numa"
 			noauto_numa=1
 			NUMA=1
 		elif [ "$1" = "-nonuma" ]; then
 			shift
+			FORCE_NUMA="nonuma"
 			noauto_numa=1
 		elif [ "$1" = "-rr" ]; then
 			shift
@@ -223,35 +226,38 @@ function main()
 	if [ "${RR}" = 1 ]; then
 		SFX="${SFX}_rr"
 	fi
-	if [ "${NUMA}" = 1 ]; then
+	if [ "${FORCE_NUMA}" = numa ]; then
 		SFX="${SFX}_numa"
+	else
+		SFX="${SFX}_auto"
 	fi
 	mkdir -p ${HOME}/iobench_results
 	for h in ${HOSTS}
 	do
-		ssh $h mkdir -p ${HOME}/iobench_results
+		ssh $h mkdir -p ${HOME}/iobench_results  ${HOME}/run_iobench
+		scp ${HOME}/run_iobench/* $h:${HOME}/run_iobench
 	done
 
         #HIT_SIZE=12800K
 	for i in 512 4K 8K 16K 32K 64K 128K 256K
 	do
-		run_test ${TST}_rnd_hit_${SFX}$(choose_numa $i ${noauto_numa})_$i
+		run_test ${TST}_rnd_hit_${SFX}_$i
 	done
 
 	#HIT_SIZE=6400K
 	for i in 512 4K 8K 16K 32K 64K 128K 256K
 	do
-		run_test ${TST}_seq_hit_${SFX}$(choose_numa $i ${noauto_numa})_$i
+		run_test ${TST}_seq_hit_${SFX}_$i
 	done
 
 	for i in 512 4K 8K 16K 32K 64K 128K 256K
 	do
-		run_test ${TST}_rnd_miss_${SFX}$(choose_numa $i ${noauto_numa})_$i
+		run_test ${TST}_rnd_miss_${SFX}_$i
 	done
 
 	for i in 512 4K 8K 16K 32K 64K 128K 256K
 	do
-		run_test ${TST}_seq_miss_${SFX}$(choose_numa $i ${noauto_numa})_$i
+		run_test ${TST}_seq_miss_${SFX}_$i
 	done
 }
 
