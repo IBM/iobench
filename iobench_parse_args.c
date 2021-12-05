@@ -22,7 +22,7 @@ DECLARE_BFN
 do { \
 	ERROR("Use as %s [-bs block_size] [-qs queue_size]  [-fail-on-err] [ -seq ] [-mlock] [-rr | -pass-once] [-hit-size value] [-pf pattern_file] [-t run_time_sec] " \
 	"[-numa |-cpuset set | -remap-numa numa@numa_list[:numa@numa_list]...] [-poll-idle-kernel-ms value ] [-poll-idle-user-ms value ] [-poll-kcpu-offset val ] " \
-	"[-threads-per-dev n] [-write | -wp value] [ -engine aio|aio_linux|uring|scsi|nvme|dio ] dev_list]", prog_name); \
+	"[-threads-per-dev n] [-write | -wp value] [ -engine aio|aio_linux|uring|sg_aio|sg_uring|nvme|dio ] dev_list]", prog_name); \
 	return -1; \
 } while(0)
 
@@ -140,8 +140,10 @@ int io_bench_parse_args(int argc, char **argv, io_bench_params_t *params)
 				params->engine = ENGINE_AIO_URING;
 			else if (!strcmp(argv[1], "dio"))
 				params->engine = ENGINE_DIO;
-			else if (!strcmp(argv[1], "scsi"))
-				params->engine = ENGINE_SCSI;
+			else if (!strcmp(argv[1], "sg_aio"))
+				params->engine = ENGINE_SG_AIO;
+			else if (!strcmp(argv[1], "sg_uring"))
+				params->engine = ENGINE_SG_URING;
 			else if (!strcmp(argv[1], "nvme"))
 				params->engine = ENGINE_NVNE;
 			else

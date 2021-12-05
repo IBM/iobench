@@ -19,6 +19,7 @@
 
 typedef struct {
 	io_bench_thr_ctx_t *thr_ctx;
+	int (*requeue_io)(io_bench_thr_ctx_t *ctx, io_ctx_t *io);
 	void *mem;
 	size_t mem_size;
 	int queue_size;
@@ -35,5 +36,6 @@ int uring_handle_create(uring_params_t *params, uring_handle_t **phandle);
 void uring_handle_destroy(uring_handle_t *handle);
 void poll_uring(uring_handle_t *handle);
 int uring_submit_io(uring_handle_t *handle, io_ctx_t *ioctx, uint32_t size);
+int uring_submit_poll(uring_handle_t *handle, io_ctx_t *ioctx, uint32_t fd_idx);
 
 #endif

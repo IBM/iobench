@@ -25,7 +25,7 @@ DECLARE_BFN
 #include <poll.h>
 #include <errno.h>
 #include <string.h>
-
+#include <poll.h>
 
 typedef struct {
 	uint32_t *head;
@@ -37,6 +37,7 @@ typedef struct {
 typedef struct uring_handle
 {
 	int *fds;
+	int (*requeue_io)(io_bench_thr_ctx_t *ctx, io_ctx_t *io);
 	int fds_count;
 	int uring_fd;
 	int event_fd;
@@ -65,15 +66,17 @@ static int io_uring_register(unsigned int fd, unsigned int opcode, void *arg, un
 static int io_uring_enter(unsigned int fd, unsigned int to_submit,
 				unsigned int min_complete, unsigned int flags, sigset_t *sig)
 {
-	return syscall(__NR_io_uring_enter, fd, to_submit, min_complete, flags, sig);
+	int rc;
+	rc = syscall(__NR_io_uring_enter, fd, to_submit, min_complete, flags, sig);
+	return (rc > 0) ? 0 : rc;
 }
 
 int uring_handle_create(uring_params_t *params, uring_handle_t **phandle)
 {
 	uring_handle_t *handle;
 	int rc = -ENOMEM;
-	struct iovec iov;
 	void *p;
+	struct iovec iov;
 
 	*phandle = NULL;
 	handle = calloc(1, sizeof(uring_handle_t));
@@ -81,6 +84,7 @@ int uring_handle_create(uring_params_t *params, uring_handle_t **phandle)
 		ERROR("Cannot alloc for handle");
 		return -ENOMEM;
 	}
+	handle->requeue_io = params->requeue_io;
 	handle->uring_fd = handle->event_fd = -1U;
 	handle->fds = calloc(params->fd_count, sizeof(int));
 	if (!handle->fds) {
@@ -111,8 +115,10 @@ int uring_handle_create(uring_params_t *params, uring_handle_t **phandle)
 		ERROR("Failed to create uring");
 		goto cleanup;
 	}
+
 	iov.iov_base = params->mem;
 	iov.iov_len = params->mem_size;
+
 	if (io_uring_register(handle->uring_fd, IORING_REGISTER_BUFFERS, &iov, 1)) {
 		static bool log_once = false;
 		if (!log_once) {
@@ -200,7 +206,7 @@ static void inline handle_one_cqe(uring_handle_t *handle, uint32_t idx)
 	io_ctx->status = handle->cqes[idx].res;
 	if (io_ctx->status > 0)
 		io_ctx->status = 0;
-	io_bench_requeue_io(handle->thr_ctx, io_ctx);
+	handle->requeue_io(handle->thr_ctx, io_ctx);
 	__sync_synchronize();
 	(*handle->cq_ptrs.head)++;
 }
@@ -254,11 +260,27 @@ void poll_uring(uring_handle_t *handle)
 	clean_completions(handle);
 }
 
+static int submit_sqe(uring_handle_t *handle, uint32_t idx)
+{
+	uint32_t sq_tail;
+
+	sq_tail = (*handle->sq_ptrs.tail) & (*handle->sq_ptrs.ring_mask);
+	handle->sq_indices[sq_tail] = idx;
+
+	__sync_synchronize();
+	(*handle->sq_ptrs.tail)++;
+
+	if (!handle->params.sq_thread_idle)
+		return io_uring_enter(handle->uring_fd, 1, 0, 0, NULL);
+	if (*handle->sq_ptrs.flags & IORING_SQ_NEED_WAKEUP)
+		return io_uring_enter(handle->uring_fd, 0, 0, IORING_ENTER_SQ_WAKEUP, NULL);
+	return 0;
+}
+
 int uring_submit_io(uring_handle_t *handle, io_ctx_t *ioctx, uint32_t size)
 {
 	uint32_t idx = ioctx->slot_idx;
 	struct io_uring_sqe *sqe = handle->sqes + idx;
-	uint32_t sq_tail;
 	struct iovec iov;
 
 	memset(sqe, 0, sizeof(*sqe));
@@ -277,16 +299,20 @@ int uring_submit_io(uring_handle_t *handle, io_ctx_t *ioctx, uint32_t size)
 	sqe->fd = ioctx->dev_idx;
 	sqe->off = ioctx->offset;
 	sqe->user_data = (uint64_t)ioctx;
+	return submit_sqe(handle, idx);
+}
 
-	sq_tail = (*handle->sq_ptrs.tail) & (*handle->sq_ptrs.ring_mask);
-	handle->sq_indices[sq_tail] = idx;
+int uring_submit_poll(uring_handle_t *handle, io_ctx_t *ioctx, uint32_t fd_idx)
+{
+	uint32_t idx = ioctx->slot_idx;
+	struct io_uring_sqe *sqe = handle->sqes + idx;
 
-	__sync_synchronize();
-	(*handle->sq_ptrs.tail)++;
-
-	if (!handle->params.sq_thread_idle)
-		return io_uring_enter(handle->uring_fd, 1, 0, 0, NULL);
-	if (*handle->sq_ptrs.flags & IORING_SQ_NEED_WAKEUP)
-		return io_uring_enter(handle->uring_fd, 0, 0, IORING_ENTER_SQ_WAKEUP, NULL);
-	return 0;
+	memset(sqe, 0, sizeof(*sqe));
+	sqe->opcode = IORING_OP_POLL_ADD;
+	sqe->poll_events = POLLIN;
+	sqe->flags = IOSQE_FIXED_FILE;
+	sqe->fd = fd_idx;
+	sqe->off = ioctx->offset;
+	sqe->user_data = (uint64_t)ioctx;
+	return submit_sqe(handle, idx);
 }

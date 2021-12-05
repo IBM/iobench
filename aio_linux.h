@@ -19,6 +19,7 @@
 
 typedef struct {
 	io_bench_thr_ctx_t *thr_ctx;
+	int (*requeue_io)(io_bench_thr_ctx_t *ctx, io_ctx_t *io);
 	int queue_size;
 	const int *fds;
 	unsigned int fd_count;
@@ -30,6 +31,7 @@ int aio_linux_handle_create(aio_linux_params_t *params, aio_linux_handle_t **pha
 void aio_linux_handle_destroy(aio_linux_handle_t *handle);
 int aio_linux_poll(aio_linux_handle_t *handle, int n);
 int aio_linux_submit_io(aio_linux_handle_t *handle, io_ctx_t *ioctx, uint32_t size);
+int aio_linux_submit_poll(aio_linux_handle_t *handle, io_ctx_t *ioctx, int fd_idx);
 
 #endif
 

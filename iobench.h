@@ -22,7 +22,8 @@ typedef enum {
 	ENGINE_AIO_LINUX,
 	ENGINE_AIO_URING,
 	ENGINE_DIO,
-	ENGINE_SCSI,
+	ENGINE_SG_AIO,
+	ENGINE_SG_URING,
 	ENGINE_NVNE,
 	ENGINE_INVALID,
 } io_eng_t;
@@ -101,6 +102,8 @@ extern io_eng_def_t aio_engine;
 extern io_eng_def_t aio_linux_engine;
 extern io_eng_def_t aio_uring_engine;
 extern io_eng_def_t dio_engine;
+extern io_eng_def_t sg_aio_engine;
+extern io_eng_def_t sg_uring_engine;
 
 #endif
 

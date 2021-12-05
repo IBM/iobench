@@ -372,6 +372,7 @@ int io_bench_requeue_io(io_bench_thr_ctx_t *ctx, io_ctx_t *io)
 	rc = submit_one_io(ctx, io, stamp);
 done:
 	if (unlikely(rc)) {
+		ERROR("IO submit fails");
 		if (init_params.fail_on_err)
 			handle_thread_failure();
 	}
@@ -466,6 +467,7 @@ static void *thread_func(void *arg)
 			io_ctx->buf = global_ctx.ctx_array[idx]->buf_head + init_params.bs * i;
 		rc = submit_one_io(global_ctx.ctx_array[idx], io_ctx, get_uptime_us());
 		if (unlikely(rc)) {
+			ERROR("IO submit fails");
 			if (init_params.fail_on_err)
 				handle_thread_failure();
 		}
@@ -598,9 +600,10 @@ int main(int argc, char *argv[])
 		case ENGINE_AIO_LINUX: io_eng = &aio_linux_engine; break;
 		case ENGINE_AIO_URING: io_eng = &aio_uring_engine; break;
 		case ENGINE_DIO: io_eng = &dio_engine; break;
+		case ENGINE_SG_AIO: io_eng = &sg_aio_engine; break;
+		case ENGINE_SG_URING: io_eng = &sg_uring_engine; break;
 #if 0
 		case ENGINE_NVNE: io_eng = &nvme_engine; break;
-		case ENGINE_SCSI: io_eng = &scsi_engine; break;
 #endif
 		default: ERROR("Unsupported IO engine"); exit(1); break;
 	}
