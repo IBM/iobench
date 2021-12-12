@@ -26,6 +26,9 @@ DECLARE_BFN
 #include <unistd.h>
 #include <signal.h>
 #include <errno.h>
+#include <sys/ioctl.h>
+#include <linux/nvme_ioctl.h>
+#include <limits.h>
 
 
 static void dio_destroy_thread_ctx(io_bench_thr_ctx_t *ctx);
@@ -35,6 +38,15 @@ static io_ctx_t *dio_get_io_ctx(io_bench_thr_ctx_t *ctx, uint16_t slot);
 static int dio_queue_io(io_bench_thr_ctx_t *ctx, io_ctx_t *io);
 
 io_eng_def_t dio_engine = {
+	.init_thread_ctx = &dio_init_thread_ctx,
+	.stop_thread_ctx = &dio_destroy_thread_ctx,
+	.poll_completions = &dio_poll_completions,
+	.get_io_ctx = &dio_get_io_ctx,
+	.queue_io = &dio_queue_io,
+	.seed_per_io = true,
+};
+
+io_eng_def_t nvme_engine = {
 	.init_thread_ctx = &dio_init_thread_ctx,
 	.stop_thread_ctx = &dio_destroy_thread_ctx,
 	.poll_completions = &dio_poll_completions,
@@ -57,6 +69,7 @@ typedef struct {
 typedef struct {
 	dio_ioctx_t *ioctx;
 	pthread_t self;
+	int lba_size_bits;
 	uint32_t bs;
 	uint32_t qs;
 	io_bench_thr_ctx_t iobench_ctx;
@@ -117,7 +130,7 @@ static void term_handler(int signo)
 
 #define SET_ERR(__rc__) ((__rc__ < 0) ? (errno ? -errno : -1) : -ENODATA)
 
-static void *thread_func(void *arg)
+static void *thread_func_dio(void *arg)
 {
 	dio_ioctx_t *ctx = arg;
 	io_ctx_t *ioctx = &ctx->ioctx;
@@ -139,6 +152,81 @@ static void *thread_func(void *arg)
 		io_bench_complete_and_prep_io(thr_ctx, ioctx);
 	}
 	return NULL;
+}
+
+#define NVME_CMD_READ (2)
+#define NVME_CMD_WRITE (1)
+
+static void *thread_func_nvme(void *arg)
+{
+	dio_ioctx_t *ctx = arg;
+	io_ctx_t *ioctx = &ctx->ioctx;
+	io_bench_thr_ctx_t *thr_ctx = ctx->parent;
+	int fd = ctx->fd;
+	uint32_t bs =(U_2_P(thr_ctx)->bs >> U_2_P(thr_ctx)->lba_size_bits) - 1;
+	int rc;
+
+	if (ctx->cpu != -1)
+		set_thread_affinity(ctx->cpu);
+	pthread_mutex_lock(&ctx->run_mutex);
+	while (!ctx->may_run)
+		pthread_cond_wait(&ctx->run_cond, &ctx->run_mutex);
+	pthread_mutex_unlock(&ctx->run_mutex);
+
+	while (1) {
+		struct nvme_user_io nvme_io = {
+			.opcode = !ioctx->write ? NVME_CMD_READ : NVME_CMD_WRITE,
+			.nblocks = bs,
+			.addr = (uint64_t)ioctx->buf,
+			.slba = ioctx->offset >> U_2_P(thr_ctx)->lba_size_bits,
+		};
+		rc = ioctl(fd, NVME_IOCTL_SUBMIT_IO, &nvme_io);
+		ioctx->status = (rc == 0) ? 0 : SET_ERR(rc);
+		io_bench_complete_and_prep_io(thr_ctx, ioctx);
+	}
+	return NULL;
+}
+
+static int get_lba_size_bits(const char *name)
+{
+	const char *p;
+	int rc;
+	int fd;
+	char path[PATH_MAX];
+	char buf[16];
+	int i;
+
+	p = strrchr(name, '/');
+	p = (p) ? p+1 : name;
+
+	snprintf(path, sizeof(path), "/sys/block/%s/queue/minimum_io_size", p);
+	fd = open(path, O_RDONLY);
+	if (fd < 0) {
+		rc = errno ? -errno : -1;
+		ERROR("Failed to open %s", path);
+		return rc;
+	}
+
+	rc = read(fd, buf, sizeof(buf)-1);
+	if (rc <= 0) {
+		rc = rc ? (errno ? -errno : -1) : -EINVAL;
+		ERROR("Failed to read %s", path);
+	}
+	close(fd);
+	if (rc < 0)
+		return rc;
+
+	buf[rc] = '\0';
+	if (sscanf(buf, "%d", &rc) != 1) {
+		ERROR("Failed to parse %s", path);
+	}
+
+	for (i = 1; i < 32; i++) {
+		if ((1 << i) == rc)
+			return i;
+	}
+	ERROR("Unsupported LBA size of %d", rc);
+	return -EINVAL;
 }
 
 static int dio_init_thread_ctx(io_bench_thr_ctx_t **pctx, io_bench_params_t *params, void *buf_head, unsigned int dev_idx, unsigned int cpu)
@@ -199,6 +287,18 @@ static int dio_init_thread_ctx(io_bench_thr_ctx_t **pctx, io_bench_params_t *par
 		return -ENOMEM;
 	}
 
+	dio_thr_ctx->lba_size_bits = get_lba_size_bits(params->devices[dev_idx]);
+	if (dio_thr_ctx->lba_size_bits < 0) {
+		int rc = dio_thr_ctx->lba_size_bits;
+		dio_destroy_thread_ctx(&dio_thr_ctx->iobench_ctx);
+		return rc;
+	}
+	if ((params->engine != ENGINE_DIO) && (params->bs % (1 << dio_thr_ctx->lba_size_bits))) {
+		ERROR("Block size must be a multiple of sector size %d", 1 << dio_thr_ctx->lba_size_bits);
+		dio_destroy_thread_ctx(&dio_thr_ctx->iobench_ctx);
+		return -EINVAL;
+	}
+
 	act.sa_handler = term_handler;
 	if (sigaction(SIGUSR1, &act, NULL)) {
 		ERROR("Failed to setup SIGTERM handler");
@@ -207,7 +307,7 @@ static int dio_init_thread_ctx(io_bench_thr_ctx_t **pctx, io_bench_params_t *par
 	}
 
 	for (i = 0; i < dio_thr_ctx->qs; i++) {
-		int rc = pthread_create(&dio_thr_ctx->ioctx[i].tid, NULL, thread_func, &dio_thr_ctx->ioctx[i]);
+		int rc = pthread_create(&dio_thr_ctx->ioctx[i].tid, NULL, params->engine == ENGINE_DIO ? thread_func_dio : thread_func_nvme, &dio_thr_ctx->ioctx[i]);
 		if (rc ) {
 			dio_thr_ctx->ioctx[i].tid = 0;
 			if (rc > 0)

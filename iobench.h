@@ -104,6 +104,7 @@ extern io_eng_def_t aio_uring_engine;
 extern io_eng_def_t dio_engine;
 extern io_eng_def_t sg_aio_engine;
 extern io_eng_def_t sg_uring_engine;
+extern io_eng_def_t nvme_engine;
 
 #endif
 

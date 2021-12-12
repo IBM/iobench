@@ -602,9 +602,7 @@ int main(int argc, char *argv[])
 		case ENGINE_DIO: io_eng = &dio_engine; break;
 		case ENGINE_SG_AIO: io_eng = &sg_aio_engine; break;
 		case ENGINE_SG_URING: io_eng = &sg_uring_engine; break;
-#if 0
 		case ENGINE_NVNE: io_eng = &nvme_engine; break;
-#endif
 		default: ERROR("Unsupported IO engine"); exit(1); break;
 	}
 	rc = start_threads();
