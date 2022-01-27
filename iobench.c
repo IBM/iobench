@@ -335,8 +335,11 @@ static void prep_one_io(io_bench_thr_ctx_t *ctx, io_ctx_t *io, uint64_t stamp, b
 	io->dev_idx = (init_params.rr) ? choose_dev_idx(ctx) : ctx->thr_idx;
 	io->offset = choose_random_offset(ctx, io, atomic);
 	io->offset += global_ctx.ctx_array[io->dev_idx]->base_offset;
-	if (unlikely(global_ctx.pf_map))
+	if (unlikely(global_ctx.pf_map && io->write))
 		update_pf_offset(global_ctx.ctx_array[io->dev_idx], io, atomic || init_params.rr);
+	else if (!io_eng->need_mr_buffers)
+		io->buf = global_ctx.ctx_array[ctx->thr_idx]->buf_head + init_params.bs * io->slot_idx;
+
 	if (unlikely(init_params.pass_once && ((ctx->write_stats.iops + ctx->read_stats.iops) * init_params.bs) >= ctx->capacity)) {
 		__sync_fetch_and_sub(&global_ctx.done_init, 1);
 		pthread_exit(NULL);
