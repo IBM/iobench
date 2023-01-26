@@ -26,6 +26,7 @@ DECLARE_BFN
 #include <sys/resource.h>
 #include <signal.h>
 #include <errno.h>
+#include <sys/time.h>
 
 #define SLEEP_INT_MS (2500)
 #define PROGRESS_INT_US (10000000)
@@ -105,8 +106,20 @@ static void update_latencies(io_bench_stats_t *from, io_bench_stats_t *to)
 
 static void print_stats_banner(void)
 {
-	INFO_NOPFX(" RdKIOPS  WrKIOPS  Rd MiB/s  Wr MiB/s      Rd Lat  MinRLat  MaxRLat      Wr Lat  MinWLat  MaxWLat");
-	INFO_NOPFX("-------------------------------------------------------------------------------------------------");
+	INFO_NOPFX("                  RdKIOPS  WrKIOPS  Rd MiB/s  Wr MiB/s      Rd Lat  MinRLat  MaxRLat      Wr Lat  MinWLat  MaxWLat");
+	INFO_NOPFX("------------------------------------------------------------------------------------------------------------------");
+}
+
+static char *time_prefix(char *buf, size_t len)
+{
+	struct timeval tv;
+	struct tm tm;
+	if (gettimeofday(&tv, NULL))
+		return "";
+	if (!localtime_r(&tv.tv_sec, &tm))
+		return "";
+	snprintf(buf, len, "%02d:%02d:%02d.%06lu", tm.tm_hour, tm.tm_min, tm.tm_sec, tv.tv_usec);
+	return buf;
 }
 
 static void update_process_io_stats(uint64_t stamp, bool final)
@@ -140,11 +153,13 @@ static void update_process_io_stats(uint64_t stamp, bool final)
 		print_stats_banner();
 	}
 	if (!final) {
+		char time_str[64];
 		if (read_stats.min_lat == -1ULL)
 			read_stats.min_lat = 0;
 		if (write_stats.min_lat == -1ULL)
 			write_stats.min_lat = 0;
-		INFO_NOPFX("%8.2lf %8.2lf %9.2lf %9.2lf %11.2lf %8lu %8lu %11.2lf %8lu %8lu",
+		INFO_NOPFX("%s: %8.2lf %8.2lf %9.2lf %9.2lf %11.2lf %8lu %8lu %11.2lf %8lu %8lu",
+			time_prefix(time_str, sizeof(time_str)),
 			((read_stats.iops - global_ctx.read_stats.iops) * 1000.0) / (stamp - global_ctx.int_start),
 			((write_stats.iops - global_ctx.write_stats.iops) * 1000.0) / (stamp - global_ctx.int_start),
 			(read_stats.iops - global_ctx.read_stats.iops) * 0.953674 * init_params.bs / (stamp - global_ctx.int_start),
@@ -158,12 +173,14 @@ static void update_process_io_stats(uint64_t stamp, bool final)
 	update_latencies(&read_stats, &global_ctx.read_stats);
 	update_latencies(&write_stats, &global_ctx.write_stats);
 	if (unlikely(final)) {
+		char time_str[64];
 		if (global_ctx.read_stats.min_lat == -1ULL)
 			global_ctx.read_stats.min_lat = 0;
 		if (global_ctx.write_stats.min_lat == -1ULL)
 			global_ctx.write_stats.min_lat = 0;
-		INFO_NOPFX("-------------------------------------------------------------------------------------------------");
-		INFO_NOPFX("%8.2lf %8.2lf %9.2lf %9.2lf %11.2lf %8lu %8lu %11.2lf %8lu %8lu",
+		INFO_NOPFX("------------------------------------------------------------------------------------------------------------------");
+		INFO_NOPFX("%s: %8.2lf %8.2lf %9.2lf %9.2lf %11.2lf %8lu %8lu %11.2lf %8lu %8lu",
+			time_prefix(time_str, sizeof(time_str)),
 			((global_ctx.read_stats.iops) * 1000.0) / (stamp - global_ctx.start),
 			((global_ctx.write_stats.iops) * 1000.0) / (stamp - global_ctx.start),
 			(global_ctx.read_stats.iops) * 0.953674 * init_params.bs / (stamp - global_ctx.start),
