@@ -20,9 +20,9 @@ DECLARE_BFN
 
 #define usage() \
 do { \
-	ERROR("Use as %s [-bs block_size] [-qs queue_size]  [-fail-on-err] [ -seq ] [-mlock] [-rr | -pass-once] [-hit-size value] [-pf pattern_file] [-t run_time_sec] " \
+	ERROR("Use as %s [-bs block_size] [-qs queue_size]  [-fail-on-err] [ -seq ] [-mlock] [-rr [-threads n] |-pass-once] [-hit-size value] [-pf pattern_file] [-t run_time_sec] " \
 	"[-numa |-cpuset set | -remap-numa numa@numa_list[:numa@numa_list]...] [-poll-idle-kernel-ms value ] [-poll-idle-user-ms value ] [-poll-kcpu-offset val ] " \
-	"[-threads-per-dev n] [-write | -wp value] [ -engine aio|aio_linux|uring|sg_aio|sg_uring|nvme|dio ] dev_list]", prog_name); \
+	"[-threads-per-dev] [-write | -wp value] [ -engine aio|aio_linux|uring|sg_aio|sg_uring|nvme|dio ] dev_list]", prog_name); \
 	return -1; \
 } while(0)
 
@@ -129,6 +129,9 @@ int io_bench_parse_args(int argc, char **argv, io_bench_params_t *params)
 			if (params->pass_once)
 				usage();
 			params->pass_once = true; dec = 1;
+		} else if (!strcmp(argv[0], "-threads")) {
+			if (params->threads || argc == 1 || sscanf(argv[1], "%u", &params->threads) != 1)
+				usage();
 		} else if (!strcmp(argv[0], "-engine")) {
 			if (params->engine != ENGINE_INVALID || argc == 1)
 				usage();
@@ -156,10 +159,6 @@ int io_bench_parse_args(int argc, char **argv, io_bench_params_t *params)
 		argc -= dec;
 		argv += dec;
 	}
-	if (params->rr && params->engine == ENGINE_DIO) {
-		ERROR("DIO engine cannot work in RR mode");
-		return -1;
-	}
 	if (!params->devices)
 		usage();
 	if (!params->bs)
@@ -167,7 +166,7 @@ int io_bench_parse_args(int argc, char **argv, io_bench_params_t *params)
 	if (!params->qs)
 		params->qs = 16;
 	if (params->engine == ENGINE_INVALID) {
-		INFO("Falling back to Linux DIO AIO");
+		INFO("Falling back to Linux AIO");
 		params->engine = ENGINE_AIO_LINUX;
 	}
 	if (params->hit_size && (params->hit_size < params->bs)) {
@@ -187,6 +186,20 @@ int io_bench_parse_args(int argc, char **argv, io_bench_params_t *params)
 			ERROR("iobench: write-once mode is not compatible with rr mode");
 			usage();
 		}
+	}
+	if (params->threads && !params->rr) {
+		ERROR("iobench: -threads parameter is valid with -rr only");
+		usage();
+	}
+	if (params->threads && params->threads_per_dev != 1) {
+		ERROR("iobench: -threads and -threads-per-dev are mutually exclusive");
+		usage();
+	}
+	if (!params->threads)
+		params->threads = params->ndevs;
+	else if(params->threads > params->ndevs) {
+		WARN("iobench: -threads cannot be larger than number of devices; decreasing to %u", params->ndevs);
+		params->threads = params->ndevs;
 	}
 	if (!params->threads_per_dev)
 		params->threads_per_dev = 1;

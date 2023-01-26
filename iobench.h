@@ -55,6 +55,7 @@ typedef struct {
 	char **devices;
 	unsigned int threads_per_dev;
 	unsigned int ndevs;
+	unsigned int threads;
 	bool use_numa;
 	char *cpuset;
 	char *remap_numa;
@@ -64,8 +65,11 @@ typedef struct {
 	uint64_t capacity;
 	uint64_t base_offset;
 	uint64_t offset;
-	uint64_t pf_offset;
+} io_bench_dev_ctx_t;
+
+typedef struct {
 	void *buf_head;
+	uint64_t pf_offset;
 	io_bench_stats_t write_stats;
 	io_bench_stats_t read_stats;
 	unsigned int seed;

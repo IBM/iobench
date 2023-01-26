@@ -142,7 +142,6 @@ static int sg_init_thread_ctx(io_bench_thr_ctx_t **pctx, io_bench_params_t *para
 		sg_thr_ctx->ioctx[i].buf = sg_thr_ctx->sg_handle.ioctx[i].buf;
 	}
 
-	sg_thr_ctx->iobench_ctx.capacity = sg_thr_ctx->sg_handle.capacity * sg_thr_ctx->sg_handle.lba_size;
 	if ((params->engine == ENGINE_SG_AIO)) {
 		if (aio_linux_handle_create(
 			&(aio_linux_params_t) {

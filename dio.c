@@ -69,9 +69,12 @@ typedef struct {
 typedef struct {
 	dio_ioctx_t *ioctx;
 	pthread_t self;
+	int *fds;
 	int lba_size_bits;
 	uint32_t bs;
 	uint32_t qs;
+	uint32_t ndevs;
+	bool rr;
 	io_bench_thr_ctx_t iobench_ctx;
 } dio_thr_ctx_t;
 
@@ -108,7 +111,7 @@ static void kill_all_dio_threads(io_bench_thr_ctx_t *ctx)
 	}
 
 	for (i = 0; i < pctx->qs; i++) {
-		if (pctx->ioctx[i].fd >= 0)
+		if (pctx->ioctx[i].fd >= 0 && !pctx->rr)
 			close(pctx->ioctx[i].fd);
 	}
 }
@@ -121,6 +124,15 @@ static void dio_destroy_thread_ctx(io_bench_thr_ctx_t *ctx)
 
 	if (pctx->ioctx)
 		free(pctx->ioctx);
+	if (pctx->rr && pctx->fds) {
+		uint32_t i;
+		for (i = 0; i < pctx->ndevs; i++) {
+			if (pctx->fds[i] >= 0)
+				close(pctx->fds[i]);
+		}
+	}
+	free(pctx->fds);
+	pctx->fds = NULL;
 }
 
 static void term_handler(int signo)
@@ -135,7 +147,7 @@ static void *thread_func_dio(void *arg)
 	dio_ioctx_t *ctx = arg;
 	io_ctx_t *ioctx = &ctx->ioctx;
 	io_bench_thr_ctx_t *thr_ctx = ctx->parent;
-	int fd = ctx->fd;
+	dio_thr_ctx_t *pctx = U_2_P(thr_ctx);
 	uint32_t bs = U_2_P(thr_ctx)->bs;
 	int rc;
 
@@ -147,6 +159,7 @@ static void *thread_func_dio(void *arg)
 	pthread_mutex_unlock(&ctx->run_mutex);
 
 	while (1) {
+		int fd = (pctx->rr) ? pctx->fds[ioctx->dev_idx] : ctx->fd;
 		rc = (!ioctx->write) ? pread(fd, ioctx->buf, bs, ioctx->offset) : pwrite(fd, ioctx->buf, bs, ioctx->offset);
 		ioctx->status = (rc == bs) ? 0 : SET_ERR(rc);
 		io_bench_complete_and_prep_io(thr_ctx, ioctx);
@@ -162,7 +175,7 @@ static void *thread_func_nvme(void *arg)
 	dio_ioctx_t *ctx = arg;
 	io_ctx_t *ioctx = &ctx->ioctx;
 	io_bench_thr_ctx_t *thr_ctx = ctx->parent;
-	int fd = ctx->fd;
+	dio_thr_ctx_t *pctx = U_2_P(thr_ctx);
 	uint32_t bs =(U_2_P(thr_ctx)->bs >> U_2_P(thr_ctx)->lba_size_bits) - 1;
 	int rc;
 
@@ -174,6 +187,7 @@ static void *thread_func_nvme(void *arg)
 	pthread_mutex_unlock(&ctx->run_mutex);
 
 	while (1) {
+		int fd = (pctx->rr) ? pctx->fds[ioctx->dev_idx] : ctx->fd;
 		struct nvme_user_io nvme_io = {
 			.opcode = !ioctx->write ? NVME_CMD_READ : NVME_CMD_WRITE,
 			.nblocks = bs,
@@ -246,7 +260,19 @@ static int dio_init_thread_ctx(io_bench_thr_ctx_t **pctx, io_bench_params_t *par
 	dio_thr_ctx->self = pthread_self();
 	dio_thr_ctx->qs = params->qs;
 	dio_thr_ctx->bs = params->bs;
+	dio_thr_ctx->rr = params->rr;
+	dio_thr_ctx->ndevs = params->ndevs;
 
+	if (params->rr) {
+		dio_thr_ctx->fds = calloc(sizeof(int), params->ndevs);
+		if (dio_thr_ctx->fds) {
+			memset(dio_thr_ctx->fds, 0xff, sizeof(int) * params->ndevs);
+		} else {
+			ERROR("Failed to map device FD array");
+			dio_destroy_thread_ctx(&dio_thr_ctx->iobench_ctx);
+			return -ENOMEM;
+		}
+	}
 	dio_thr_ctx->ioctx = calloc(params->qs, sizeof(*dio_thr_ctx->ioctx));
 	if (!dio_thr_ctx->ioctx) {
 		ERROR("Failed to map IO buffers");
@@ -271,20 +297,25 @@ static int dio_init_thread_ctx(io_bench_thr_ctx_t **pctx, io_bench_params_t *par
 				dio_thr_ctx->ioctx[i].cpu = get_next_numa_rr_cpu(numa);
 		}
 	}
-	for (i = 0; i < dio_thr_ctx->qs; i++) {
-		dio_thr_ctx->ioctx[i].fd = open(params->devices[dev_idx], O_RDWR|O_DIRECT);
-		if (dio_thr_ctx->ioctx[i].fd < 0) {
-			ERROR("Failed to open %s", params->devices[dev_idx]);
-			dio_destroy_thread_ctx(&dio_thr_ctx->iobench_ctx);
-			return -ENOMEM;
+	if (!params->rr) {
+		for (i = 0; i < dio_thr_ctx->qs; i++) {
+			dio_thr_ctx->ioctx[i].fd = open(params->devices[dev_idx], O_RDWR|O_DIRECT);
+			if (dio_thr_ctx->ioctx[i].fd < 0) {
+				ERROR("Failed to open %s", params->devices[dev_idx]);
+				dio_destroy_thread_ctx(&dio_thr_ctx->iobench_ctx);
+				return -ENOMEM;
+			}
 		}
-	}
-
-	dio_thr_ctx->iobench_ctx.capacity = lseek(dio_thr_ctx->ioctx[0].fd, 0, SEEK_END);
-	if (dio_thr_ctx->iobench_ctx.capacity == -1ULL) {
-		ERROR("Failed to determine capacity for %s", params->devices[dev_idx]);
-		dio_destroy_thread_ctx(&dio_thr_ctx->iobench_ctx);
-		return -ENOMEM;
+	} else {
+		for (i = 0; i < params->ndevs; i++) {
+			dio_thr_ctx->fds[i] = open(params->devices[i], O_RDWR|O_DIRECT);
+			if (dio_thr_ctx->fds[i] < 0) {
+				ERROR("Failed to open %s", params->devices[i]);
+				dio_destroy_thread_ctx(&dio_thr_ctx->iobench_ctx);
+				return -ENOMEM;
+			}
+		}
+		dio_thr_ctx->ioctx[0].fd = dio_thr_ctx->fds[dev_idx];
 	}
 
 	dio_thr_ctx->lba_size_bits = get_lba_size_bits(params->devices[dev_idx]);

@@ -104,7 +104,7 @@ static int aio_block_init_thread_ctx(io_bench_thr_ctx_t **pctx, io_bench_params_
 	aio_block_thr_ctx_t *aio_block_thr_ctx;
 	unsigned int i;
 	static int *fds = NULL;
-	int fd;
+
 	static pthread_once_t once_control = PTHREAD_ONCE_INIT;
 	void init_dio(void)
 	{
@@ -148,16 +148,8 @@ static int aio_block_init_thread_ctx(io_bench_thr_ctx_t **pctx, io_bench_params_
 			aio_block_destroy_thread_ctx(&aio_block_thr_ctx->iobench_ctx);
 			return -ENOMEM;
 		}
-		fd = aio_block_thr_ctx->fd;
 	} else {
 		aio_block_thr_ctx->fds = fds;
-		fd = fds[dev_idx];
-	}
-	aio_block_thr_ctx->iobench_ctx.capacity = lseek(fd, 0, SEEK_END);
-	if (aio_block_thr_ctx->iobench_ctx.capacity == -1ULL) {
-		ERROR("Failed to determine capacity for %s", params->devices[dev_idx]);
-		aio_block_destroy_thread_ctx(&aio_block_thr_ctx->iobench_ctx);
-		return -ENOMEM;
 	}
 	if ((params->engine == ENGINE_AIO_LINUX)) {
 		if (aio_linux_handle_create(

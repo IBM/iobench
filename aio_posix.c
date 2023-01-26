@@ -160,12 +160,6 @@ static int aio_init_thread_ctx(io_bench_thr_ctx_t **pctx, io_bench_params_t *par
 		aio_thr_ctx->dev_names = params->devices;
 		fd = fds[dev_idx];
 	}
-	aio_thr_ctx->iobench_ctx.capacity = lseek(fd, 0, SEEK_END);
-	if (aio_thr_ctx->iobench_ctx.capacity == -1ULL) {
-		ERROR("Failed to determine capacity for %s", params->devices[dev_idx]);
-		aio_destroy_thread_ctx(&aio_thr_ctx->iobench_ctx);
-		return -ENOMEM;
-	}
 
 	for (i = 0; i < aio_thr_ctx->qs; i++) {
 		aio_thr_ctx->aiocb[i] = &aio_thr_ctx->ioctx[i].aiocb;

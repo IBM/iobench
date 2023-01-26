@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -g -O2 -Wall -Werror -D_USE_DEBUG_PFX_ -pthread
+CFLAGS = -g -O2 -Wall -Wno-stringop-overread -Werror -D_USE_DEBUG_PFX_ -pthread
 LDFLAGS = -pthread -lrt -laio
 
 all: iobench

@@ -39,6 +39,7 @@ struct {
 	uint64_t pf_size;
 	uint64_t int_start;
 	uint64_t start;
+	io_bench_dev_ctx_t *dev_ctx_array;
 	io_bench_thr_ctx_t **ctx_array;
 	pthread_t *threads;
 	uint64_t progress_int;
@@ -63,7 +64,7 @@ static io_eng_def_t *io_eng = NULL;
 static void kill_all_threads(void)
 {
 	unsigned int i;
-	for (i = 0; i < init_params.ndevs; i++) {
+	for (i = 0; i < init_params.threads; i++) {
 		if (global_ctx.threads[i])
 			pthread_kill(global_ctx.threads[i], SIGTERM);
 	}
@@ -72,7 +73,7 @@ static void kill_all_threads(void)
 static void join_all_threads(void)
 {
 	unsigned int i;
-	for (i = 0; i < init_params.ndevs; i++) {
+	for (i = 0; i < init_params.threads; i++) {
 		if (global_ctx.threads[i])
 			pthread_join(global_ctx.threads[i], NULL);
 	}
@@ -131,7 +132,7 @@ static void update_process_io_stats(uint64_t stamp, bool final)
 	reset_latencies(&read_stats);
 	reset_latencies(&write_stats);
 
-	for (i = 0; i < init_params.ndevs; i++) {
+	for (i = 0; i < init_params.threads; i++) {
 		read_stats.iops += global_ctx.ctx_array[i]->read_stats.iops;
 		write_stats.iops += global_ctx.ctx_array[i]->write_stats.iops;
 		update_latencies(&global_ctx.ctx_array[i]->read_stats, &read_stats);
@@ -142,14 +143,14 @@ static void update_process_io_stats(uint64_t stamp, bool final)
 		size_t len=0;
 		double avg = 0;
 		unsigned int i;
-		for (i = 0; i < init_params.ndevs; i++) {
-			double pr = (global_ctx.ctx_array[i]->write_stats.iops + global_ctx.ctx_array[i]->read_stats.iops) * init_params.bs * 100.0 / global_ctx.ctx_array[i]->capacity;
+		for (i = 0; i < init_params.threads; i++) {
+			double pr = (global_ctx.ctx_array[i]->write_stats.iops + global_ctx.ctx_array[i]->read_stats.iops) * init_params.bs * 100.0 / global_ctx.dev_ctx_array[i].capacity;
 			if (len < sizeof(buf))
 				len += snprintf(buf+len, sizeof(buf) - len,  "%.2lf ", pr);
 			avg += pr;
 		}
 		global_ctx.progress_int = stamp;
-		INFO_NOPFX("Progress: %s avg: %.2lf", buf, avg / init_params.ndevs);
+		INFO_NOPFX("Progress: %s avg: %.2lf", buf, avg / init_params.threads);
 		print_stats_banner();
 	}
 	if (!final) {
@@ -235,7 +236,7 @@ static void term_handler(int signo)
 		unsigned int i;
 		pthread_kill(global_ctx.main_thread, SIGTERM);
 		if (io_eng->stop_thread_ctx) {
-			for (i = 0; i < init_params.ndevs; i++) {
+			for (i = 0; i < init_params.threads; i++) {
 				if (global_ctx.threads[i] == pthread_self()) {
 					io_eng->stop_thread_ctx(global_ctx.ctx_array[i]);
 					break;
@@ -249,7 +250,7 @@ static void term_handler(int signo)
 		print_final_process_stats();
 	join_all_threads();
 	if (io_eng->destroy_thread_ctx) {
-		for (i = 0; i < init_params.ndevs; i++) {
+		for (i = 0; i < init_params.threads; i++) {
 			if (global_ctx.ctx_array[i])
 				io_eng->destroy_thread_ctx(global_ctx.ctx_array[i]);
 		}
@@ -263,12 +264,12 @@ static uint64_t choose_seq_offset_atomic(io_bench_thr_ctx_t *thread_ctx, io_ctx_
 	uint64_t new_value;
 
 	do {
-		result = global_ctx.ctx_array[io->dev_idx]->offset;
+		result = global_ctx.dev_ctx_array[io->dev_idx].offset;
 		new_value = result + init_params.bs;
-		if (new_value >= global_ctx.ctx_array[io->dev_idx]->capacity)
+		if (new_value >= global_ctx.dev_ctx_array[io->dev_idx].capacity)
 				new_value = 0;
 
-	} while (!__sync_bool_compare_and_swap(&global_ctx.ctx_array[io->dev_idx]->offset, result, new_value));
+	} while (!__sync_bool_compare_and_swap(&global_ctx.dev_ctx_array[io->dev_idx].offset, result, new_value));
 	return result;
 }
 
@@ -277,12 +278,12 @@ static uint64_t choose_seq_offset(io_bench_thr_ctx_t *thread_ctx, io_ctx_t *io)
 	uint64_t result;
 	uint64_t new_value;
 
-	result = global_ctx.ctx_array[io->dev_idx]->offset;
+	result = global_ctx.dev_ctx_array[io->dev_idx].offset;
 	new_value = result + init_params.bs;
 
-	if (new_value >= global_ctx.ctx_array[io->dev_idx]->capacity)
+	if (new_value >= global_ctx.dev_ctx_array[io->dev_idx].capacity)
 		new_value = 0;
-	global_ctx.ctx_array[io->dev_idx]->offset = new_value;
+	global_ctx.dev_ctx_array[io->dev_idx].offset = new_value;
 	return result;
 }
 
@@ -294,9 +295,9 @@ static inline uint64_t choose_random_offset(io_bench_thr_ctx_t *thread_ctx, io_c
 	if (init_params.seq) {
 		result = (!atomic) ? choose_seq_offset(thread_ctx, io) : choose_seq_offset_atomic(thread_ctx, io);
 	} else {
-		result = ((double)rand_r(seed) * ((global_ctx.ctx_array[io->dev_idx]->capacity) / init_params.bs)) / ((unsigned int)RAND_MAX + 1);
+		result = ((double)rand_r(seed) * (global_ctx.dev_ctx_array[io->dev_idx].capacity / init_params.bs)) / ((unsigned int)RAND_MAX + 1);
 		result *= init_params.bs;
-		result += ((global_ctx.ctx_array[io->dev_idx]->capacity) * io->slot_idx);
+		result += (global_ctx.dev_ctx_array[io->dev_idx].capacity * io->slot_idx);
 	}
 	return result;
 }
@@ -351,13 +352,13 @@ static void prep_one_io(io_bench_thr_ctx_t *ctx, io_ctx_t *io, uint64_t stamp, b
 	io->write = is_write_io(seed);
 	io->dev_idx = (init_params.rr) ? choose_dev_idx(ctx) : ctx->thr_idx;
 	io->offset = choose_random_offset(ctx, io, atomic);
-	io->offset += global_ctx.ctx_array[io->dev_idx]->base_offset;
+	io->offset += global_ctx.dev_ctx_array[io->dev_idx].base_offset;
 	if (unlikely(global_ctx.pf_map && io->write))
 		update_pf_offset(global_ctx.ctx_array[io->dev_idx], io, atomic || init_params.rr);
 	else if (!io_eng->need_mr_buffers)
 		io->buf = global_ctx.ctx_array[ctx->thr_idx]->buf_head + init_params.bs * io->slot_idx;
 
-	if (unlikely(init_params.pass_once && ((ctx->write_stats.iops + ctx->read_stats.iops) * init_params.bs) >= ctx->capacity)) {
+	if (unlikely(init_params.pass_once && ((ctx->write_stats.iops + ctx->read_stats.iops) * init_params.bs) >= global_ctx.dev_ctx_array[ctx->thr_idx].capacity)) {
 		__sync_fetch_and_sub(&global_ctx.done_init, 1);
 		pthread_exit(NULL);
 	}
@@ -411,6 +412,46 @@ void io_bench_complete_and_prep_io(io_bench_thr_ctx_t *ctx, io_ctx_t *io)
 	}
 }
 
+static int set_device_context_fields(void)
+{
+	uint32_t max = init_params.ndevs / init_params.threads_per_dev;
+	uint32_t i;
+	uint32_t j;
+
+	for (i = 0; i < max; i++) {
+		int fd;
+		uint64_t base_offset;
+		uint64_t capacity;
+		fd = open(init_params.devices[i], O_RDONLY);
+		if (fd < 0) {
+			ERROR("Failed to open %s", init_params.devices[i]);
+			return -ENODEV;
+		}
+		capacity = lseek(fd, 0, SEEK_END);
+		close(fd);
+		if (capacity == -1ULL) {
+			ERROR("Failed to determine capacity for %s", init_params.devices[i]);
+			return -ENODEV;
+		}
+
+		if (init_params.hit_size && init_params.hit_size < capacity)
+			capacity = init_params.hit_size;
+
+		capacity /= init_params.threads_per_dev;
+		capacity = base_offset = (capacity / init_params.bs) * init_params.bs;
+		if (!init_params.seq) {
+			capacity /= init_params.qs;
+			capacity = (capacity / init_params.bs) * init_params.bs;
+		}
+		for (j = 0; j < init_params.threads_per_dev; j++) {
+			uint32_t idx = j * init_params.ndevs + i;
+			global_ctx.dev_ctx_array[idx].base_offset = base_offset *j;
+			global_ctx.dev_ctx_array[idx].capacity = capacity;
+		}
+	}
+	return 0;
+}
+
 static void *thread_func(void *arg)
 {
 	int rc;
@@ -454,20 +495,9 @@ static void *thread_func(void *arg)
 	global_ctx.ctx_array[idx]->thr_idx = idx;
 	global_ctx.ctx_array[idx]->seed = get_uptime_us() + idx;
 
-	if (init_params.hit_size && init_params.hit_size < global_ctx.ctx_array[idx]->capacity)
-		global_ctx.ctx_array[idx]->capacity = init_params.hit_size;
-
-	global_ctx.ctx_array[idx]->capacity /= init_params.threads_per_dev;
-	global_ctx.ctx_array[idx]->capacity = (global_ctx.ctx_array[idx]->capacity / init_params.bs) * init_params.bs;
-	global_ctx.ctx_array[idx]->base_offset = (idx % init_params.threads_per_dev) * global_ctx.ctx_array[idx]->capacity;
-
-	if (!init_params.seq) {
-		global_ctx.ctx_array[idx]->capacity /= init_params.qs;
-		global_ctx.ctx_array[idx]->capacity = (global_ctx.ctx_array[idx]->capacity / init_params.bs) * init_params.bs;
-	}
 	pthread_mutex_lock(&global_ctx.init_mutex);
 	global_ctx.done_init++;
-	if (global_ctx.done_init == init_params.ndevs)
+	if (global_ctx.done_init == init_params.threads)
 		pthread_cond_signal(&global_ctx.init_cond);
 	pthread_mutex_unlock(&global_ctx.init_mutex);
 
@@ -552,13 +582,18 @@ static int start_threads(void)
 	}
 
 	global_ctx.main_thread = pthread_self();
-	global_ctx.ctx_array = calloc(init_params.ndevs, sizeof(global_ctx.ctx_array[0]));
-	global_ctx.threads = calloc(init_params.ndevs, sizeof(global_ctx.threads[0]));
-	if (!global_ctx.ctx_array || !global_ctx.threads) {
+	global_ctx.dev_ctx_array = calloc(init_params.ndevs, sizeof(global_ctx.dev_ctx_array[0]));
+	global_ctx.ctx_array = calloc(init_params.threads, sizeof(global_ctx.ctx_array[0]));
+	global_ctx.threads = calloc(init_params.threads, sizeof(global_ctx.threads[0]));
+	if (!global_ctx.ctx_array || !global_ctx.threads || !global_ctx.dev_ctx_array) {
 		ERROR("Cannot malloc");
 		return -ENOMEM;
 	};
-	for (i = 0; i < init_params.ndevs; i++) {
+	if (set_device_context_fields()) {
+		ERROR("Failed to setup device context fields");
+		return -ENODEV;
+	}
+	for (i = 0; i < init_params.threads; i++) {
 		unsigned long val = i;
 		cpu = -1;
 		if (init_params.cpuset) {
@@ -582,7 +617,7 @@ static int start_threads(void)
 		}
 	}
 	pthread_mutex_lock(&global_ctx.init_mutex);
-	while (global_ctx.done_init != init_params.ndevs)
+	while (global_ctx.done_init != init_params.threads)
 		pthread_cond_wait(&global_ctx.init_cond, &global_ctx.init_mutex);
 	pthread_mutex_unlock(&global_ctx.init_mutex);
 
