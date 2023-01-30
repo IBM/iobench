@@ -1,6 +1,6 @@
 #!/bin/bash
 
-HOSTS="zeta sigma"
+HOSTS="host366"
 extra_args=""
 
 function kill_tests()
@@ -105,27 +105,18 @@ HIT_SIZE="20M"
 function choose_qs()
 {
 	case $1 in
-		256K|128K|64K) echo "-qs 4";;
-		32K) echo "-qs 8 -threads-per-dev 2";;
-		16K) echo "-qs 32";;
-		*) echo "-qs 128 -threads-per-dev 2";;
+		256K) echo "-qs 4";;
+		128K) echo "-qs 8";;
+		64K) echo "-qs 16";;
+		32K) echo "-qs 32";;
+		*) echo "-qs 128";;
 	esac
 }
 
 FORCE_NUMA=""
 function choose_numa()
 {
-	if [ "${FORCE_NUMA}" = "nonuma" ]; then
-		echo ""
-		return 0
-	elif [  "${FORCE_NUMA}" = "numa" ]; then
-		echo "-numa"
-		return 0
-	fi
-	case $1 in
-		32K) echo "-numa";;
-		*) echo "-cpuset 0-31";;
-	esac
+	echo "-cpuset 0-31";;
 }
 
 function run_test()

@@ -20,9 +20,9 @@ DECLARE_BFN
 
 #define usage() \
 do { \
-	ERROR("Use as %s [-bs block_size] [-qs queue_size]  [-fail-on-err] [ -seq ] [-mlock] [-rr [-threads n] |-pass-once] [-hit-size value] [-pf pattern_file] [-t run_time_sec] " \
-	"[-numa |-cpuset set | -remap-numa numa@numa_list[:numa@numa_list]...] [-poll-idle-kernel-ms value ] [-poll-idle-user-ms value ] [-poll-kcpu-offset val ] " \
-	"[-threads-per-dev] [-write | -wp value] [ -engine aio|aio_linux|uring|sg_aio|sg_uring|nvme|dio ] dev_list]", prog_name); \
+	ERROR("Use as %s [-bs block_size] [-qs queue_size]  [-fail-on-err] [-seq] [-mlock] [-rr [-threads n] |-pass-once] [-hit-size value] [-pf pattern_file] [-t run_time_sec] " \
+	"[-numa |-cpuset set | -remap-numa numa@numa_list[:numa@numa_list]...] [-poll-idle-kernel-ms value] [-poll-idle-user-ms value] [-poll-kcpu-offset val] " \
+	"[-threads-per-dev] [-write | -wp value] [ -engine aio|aio_linux|uring|sg_aio|sg_uring|nvme|dio ] [-kops kiops] dev_list]", prog_name); \
 	return -1; \
 } while(0)
 
@@ -101,6 +101,9 @@ int io_bench_parse_args(int argc, char **argv, io_bench_params_t *params)
 			if (params->pf_name || argc == 1)
 				usage();
 			params->pf_name = argv[1];
+		} else if (!strcmp(argv[0], "-kiops")) {
+			if (params->kiops || argc == 1 || sscanf(argv[1], "%lf", &params->kiops) != 1)
+				usage();
 		} else if (!strcmp(argv[0], "-fail-on-err")) {
 			if (params->fail_on_err)
 				usage();
@@ -148,7 +151,7 @@ int io_bench_parse_args(int argc, char **argv, io_bench_params_t *params)
 			else if (!strcmp(argv[1], "sg_uring"))
 				params->engine = ENGINE_SG_URING;
 			else if (!strcmp(argv[1], "nvme"))
-				params->engine = ENGINE_NVNE;
+				params->engine = ENGINE_NVME;
 			else
 				usage();
 		} else {

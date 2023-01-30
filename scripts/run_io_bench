@@ -9,8 +9,8 @@ if [ "$(echo ${args} | grep '\-qs')" = "" ]; then
 fi
 
 if [ "$(echo ${args} | grep /dev/)" = "" ]; then
-	echo ${HOME}/run_iobench/iobench ${args} /dev/dm*
-	${HOME}/run_iobench/iobench ${args} /dev/dm*
+	echo ${HOME}/run_iobench/iobench ${args} /dev/nvme0n*
+	${HOME}/run_iobench/iobench ${args} /dev/nvme0n*
 else
 	echo ${HOME}/run_iobench/iobench ${args}
 	${HOME}/run_iobench/iobench ${args}

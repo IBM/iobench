@@ -15,6 +15,7 @@
 DECLARE_BFN
 #include "compiler.h"
 #include "uring.h"
+#include "io_timer.h"
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/uio.h>
@@ -43,6 +44,7 @@ typedef struct uring_handle
 	int event_fd;
 	bool memreg_done;
 	io_bench_thr_ctx_t *thr_ctx;
+	io_bench_timer_t *timer_handle;
 	uint32_t poll_idle_user_ms;
 	uint32_t *sq_indices;
 	struct io_uring_sqe *sqes;
@@ -83,6 +85,19 @@ int uring_handle_create(uring_params_t *params, uring_handle_t **phandle)
 	if (!handle) {
 		ERROR("Cannot alloc for handle");
 		return -ENOMEM;
+	}
+	if (params->target_usec_latency) {
+		if (create_io_bench_timer(&handle->timer_handle, &(timer_params_t) {
+			.get_io_ctx = params->get_io_ctx,
+			.qs = params->queue_size,
+			.requeue_io = params->requeue_io,
+			.target_usec_latency = params->target_usec_latency,
+			.thr_ctx = params->thr_ctx,
+		})) {
+			ERROR("Failed to create timer handle");
+			free(handle);
+			return -ENOMEM;
+		}
 	}
 	handle->requeue_io = params->requeue_io;
 	handle->uring_fd = handle->event_fd = -1U;
@@ -197,6 +212,8 @@ void uring_handle_destroy(uring_handle_t *handle)
 		free(handle->fds);
 	if (handle->event_fd >= 0)
 		close(handle->event_fd);
+	if (handle->timer_handle)
+		destroy_io_bench_timer(handle->timer_handle);
 	free(handle);
 }
 
@@ -206,7 +223,11 @@ static void inline handle_one_cqe(uring_handle_t *handle, uint32_t idx)
 	io_ctx->status = handle->cqes[idx].res;
 	if (io_ctx->status > 0)
 		io_ctx->status = 0;
-	handle->requeue_io(handle->thr_ctx, io_ctx);
+	update_io_stats(handle->thr_ctx, io_ctx, get_uptime_us());
+	if (!handle->timer_handle)
+		handle->requeue_io(handle->thr_ctx, io_ctx);
+	else
+		io_bench_wait_or_requeue_io(handle->timer_handle, io_ctx);
 	__sync_synchronize();
 	(*handle->cq_ptrs.head)++;
 }
@@ -233,29 +254,60 @@ void poll_uring(uring_handle_t *handle)
 {
 	struct pollfd pfd = { .fd = handle->event_fd, .events = POLLIN | POLLPRI| POLLRDNORM | POLLRDBAND | POLLRDHUP};
 	eventfd_t val;
+	uint64_t next_stamp = -1;
 
 	if (handle->poll_idle_user_ms) {
 		uint64_t stop;
 		uint64_t stamp;
 
+		if (handle->timer_handle)
+			io_bench_poll_timers(handle->timer_handle, &next_stamp);
 		while (1) {
 			stop = get_uptime_us() + handle->poll_idle_user_ms * 1000;
 			stamp = 0;
 			/* do not poll for more then poll_idle_user_ms */
-			while ((*handle->cq_ptrs.head == *handle->cq_ptrs.tail) && stamp < stop)
+			while ((*handle->cq_ptrs.head == *handle->cq_ptrs.tail) && stamp < stop) {
 				stamp = get_uptime_us();
+				if (handle->timer_handle && next_stamp < stamp) {
+					next_stamp = -1;
+					io_bench_poll_timers(handle->timer_handle, &next_stamp);
+				}
+			}
 			/* polling done, do we still have no completions? */
 			if (unlikely(*handle->cq_ptrs.head == *handle->cq_ptrs.tail)) {
 				/* clear the previous unpolled counter, if any */
 				eventfd_read(handle->event_fd, &val);
 				/* now sleep for next event, if needed */
-				if (*handle->cq_ptrs.head == *handle->cq_ptrs.tail)
-					poll(&pfd, 1, -1);
+				if (*handle->cq_ptrs.head == *handle->cq_ptrs.tail) {
+					next_stamp = -1LU;
+					if (handle->timer_handle)
+						io_bench_poll_timers(handle->timer_handle, &next_stamp);
+					if (next_stamp != -1LU) {
+						if (next_stamp)
+							ppoll(&pfd, 1, &(struct timespec) {
+								.tv_sec = next_stamp / 1000000,
+								.tv_nsec = 1000 * (next_stamp % 1000000)}, NULL);
+					} else {
+						poll(&pfd, 1, -1);
+					}
+				}
 			}
 			clean_completions(handle);
 		}
 	}
-	poll(&pfd, 1, -1);
+
+	next_stamp = -1;
+	if (handle->timer_handle)
+		io_bench_poll_timers(handle->timer_handle, &next_stamp);
+
+	if (next_stamp != -1LU) {
+		if (next_stamp)
+			ppoll(&pfd, 1, &(struct timespec) {
+				.tv_sec = next_stamp / 1000000,
+				.tv_nsec = 1000 * (next_stamp % 1000000)}, NULL);
+	} else {
+		poll(&pfd, 1, -1);
+	}
 	eventfd_read(handle->event_fd, &val);
 	clean_completions(handle);
 }

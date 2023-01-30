@@ -155,7 +155,9 @@ static int aio_block_init_thread_ctx(io_bench_thr_ctx_t **pctx, io_bench_params_
 		if (aio_linux_handle_create(
 			&(aio_linux_params_t) {
 				.thr_ctx = &aio_block_thr_ctx->iobench_ctx,
+				.target_usec_latency = 1000000.0 / ((params->kiops * 1000)/(params->threads *params->qs)),
 				.requeue_io = io_bench_requeue_io,
+				.get_io_ctx = aio_block_get_io_ctx,
 				.queue_size = params->qs,
 				.fds = (params->rr) ? aio_block_thr_ctx->fds : &aio_block_thr_ctx->fd,
 				.fd_count = (params->rr) ? params->ndevs : 1,
@@ -169,6 +171,8 @@ static int aio_block_init_thread_ctx(io_bench_thr_ctx_t **pctx, io_bench_params_
 		&(uring_params_t) {
 				.thr_ctx = &aio_block_thr_ctx->iobench_ctx,
 				.requeue_io = io_bench_requeue_io,
+				.get_io_ctx = aio_block_get_io_ctx,
+				.target_usec_latency = 1000000.0 / ((params->kiops * 1000)/(params->threads *params->qs)),
 				.mem = buf_head,
 				.mem_size = params->bs * params->qs,
 				.queue_size = params->qs,

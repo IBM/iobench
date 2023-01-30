@@ -148,6 +148,8 @@ static int sg_init_thread_ctx(io_bench_thr_ctx_t **pctx, io_bench_params_t *para
 				.thr_ctx = &sg_thr_ctx->iobench_ctx,
 				.requeue_io = sg_requeue_io,
 				.queue_size = params->qs,
+				.get_io_ctx = sg_get_io_ctx,
+				.target_usec_latency = 1000000.0 / ((params->kiops * 1000)/(params->threads *params->qs)),
 				.fds = fds,
 				.fd_count = params->qs,
 			},
@@ -160,6 +162,8 @@ static int sg_init_thread_ctx(io_bench_thr_ctx_t **pctx, io_bench_params_t *para
 		&(uring_params_t) {
 				.thr_ctx = &sg_thr_ctx->iobench_ctx,
 				.requeue_io = sg_requeue_io,
+				.get_io_ctx = sg_get_io_ctx,
+				.target_usec_latency = 1000000.0 / ((params->kiops * 1000)/(params->threads *params->qs)),
 				.mem = sg_thr_ctx->sg_handle.ioctx,
 				.mem_size = sizeof(sg_thr_ctx->sg_handle.ioctx[0]) * params->qs,
 				.queue_size = params->qs,

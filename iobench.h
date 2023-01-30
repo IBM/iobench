@@ -24,7 +24,7 @@ typedef enum {
 	ENGINE_DIO,
 	ENGINE_SG_AIO,
 	ENGINE_SG_URING,
-	ENGINE_NVNE,
+	ENGINE_NVME,
 	ENGINE_INVALID,
 } io_eng_t;
 
@@ -57,6 +57,7 @@ typedef struct {
 	unsigned int ndevs;
 	unsigned int threads;
 	bool use_numa;
+	double kiops;
 	char *cpuset;
 	char *remap_numa;
 } io_bench_params_t;
@@ -79,6 +80,7 @@ typedef struct {
 typedef struct {
 	char *buf;
 	uint64_t start_stamp;
+	uint64_t slack;
 	uint64_t offset;
 	uint16_t dev_idx;
 	uint16_t slot_idx;
@@ -101,6 +103,8 @@ typedef struct {
 int io_bench_parse_args(int argc, char **argv, io_bench_params_t *params);
 int io_bench_requeue_io(io_bench_thr_ctx_t *ctx, io_ctx_t *io);
 void io_bench_complete_and_prep_io(io_bench_thr_ctx_t *ctx, io_ctx_t *io);
+
+void update_io_stats(io_bench_thr_ctx_t *ctx, io_ctx_t *io, uint64_t stamp);
 
 extern io_eng_def_t aio_engine;
 extern io_eng_def_t aio_linux_engine;

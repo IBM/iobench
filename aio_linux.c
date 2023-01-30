@@ -15,6 +15,7 @@
 #include "logger.h"
 DECLARE_BFN
 #include "aio_linux.h"
+#include "io_timer.h"
 #include <poll.h>
 #include <libaio.h>
 #include <stdlib.h>
@@ -26,6 +27,7 @@ typedef struct aio_linux_handle {
 	int (*requeue_io)(io_bench_thr_ctx_t *ctx, io_ctx_t *io);
 	io_context_t handle;
 	struct iocb *iocbs;
+	io_bench_timer_t *timer_handle;
 	uint32_t qs;
 	int *fds;
 	unsigned int fd_count;
@@ -41,9 +43,24 @@ int aio_linux_handle_create(aio_linux_params_t *params, aio_linux_handle_t **pha
 		ERROR("Failed to alloc for aio_linux handle");
 		return -ENOMEM;
 	}
+	if (params->target_usec_latency) {
+		if (create_io_bench_timer(&handle->timer_handle, &(timer_params_t) {
+			.get_io_ctx = params->get_io_ctx,
+			.qs = params->queue_size,
+			.requeue_io = params->requeue_io,
+			.target_usec_latency = params->target_usec_latency,
+			.thr_ctx = params->thr_ctx,
+		})) {
+			ERROR("Failed to create timer handle");
+			free(handle);
+			return -ENOMEM;
+		}
+	}
 	handle->fds = calloc(params->fd_count, sizeof(*handle->fds));
 	if (!handle->fds) {
 		ERROR("Failed to alloc for file descriptors");
+		if (params->target_usec_latency)
+			destroy_io_bench_timer(handle->timer_handle);
 		free(handle);
 		return -ENOMEM;
 	}
@@ -56,6 +73,8 @@ int aio_linux_handle_create(aio_linux_params_t *params, aio_linux_handle_t **pha
 	if (!handle->iocbs) {
 		ERROR("Failed to alloc iocbs");
 		free(handle->fds);
+		if (params->target_usec_latency)
+			destroy_io_bench_timer(handle->timer_handle);
 		free(handle);
 		return -ENOMEM;
 	}
@@ -63,6 +82,8 @@ int aio_linux_handle_create(aio_linux_params_t *params, aio_linux_handle_t **pha
 		ERROR("Failed to init aio handle");
 		free(handle->fds);
 		free(handle->iocbs);
+		if (params->target_usec_latency)
+			destroy_io_bench_timer(handle->timer_handle);
 		free(handle);
 		return -ENOMEM;
 	}
@@ -75,22 +96,42 @@ void aio_linux_handle_destroy(aio_linux_handle_t *handle)
 	if (handle) {
 		free(handle->iocbs);
 		free(handle->fds);
+		if (handle->timer_handle)
+			destroy_io_bench_timer(handle->timer_handle);
 		free(handle);
 	}
 }
 
 int aio_linux_poll(aio_linux_handle_t *handle, int n)
 {
-	int rc;
+	int rc = 0;
 	struct io_event events[n];
+	uint64_t next_poll_usec = -1UL;
 
-	rc = io_getevents(handle->handle, 1, n, events, NULL);
+	if (handle->timer_handle) {
+		rc = io_bench_poll_timers(handle->timer_handle, &next_poll_usec);
+		if (rc)
+			return rc;
+	}
+	if (next_poll_usec == -1UL) {
+		rc = io_getevents(handle->handle, 1, n, events, NULL);
+	} else if (next_poll_usec) {
+		rc = io_getevents(handle->handle, 1, n, events, &(struct timespec) {
+			.tv_sec = next_poll_usec / 1000000,
+			.tv_nsec = (next_poll_usec % 1000000) * 1000,
+		});
+	}
 	if (rc > 0) {
 		int i;
 		for (i = 0; i < rc; i++) {
 			io_ctx_t *io = events[i].data;
 			io->status = (events[i].res == events[i].obj->u.c.nbytes) ?  events[i].res2 :  events[i].res;
-			handle->requeue_io(handle->thr_ctx, io);
+			update_io_stats(handle->thr_ctx, io, get_uptime_us());
+
+			if (!handle->timer_handle)
+				handle->requeue_io(handle->thr_ctx, io);
+			else
+				io_bench_wait_or_requeue_io(handle->timer_handle, io);
 		}
 		rc = 0;
 	}

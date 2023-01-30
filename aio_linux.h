@@ -20,6 +20,8 @@
 typedef struct {
 	io_bench_thr_ctx_t *thr_ctx;
 	int (*requeue_io)(io_bench_thr_ctx_t *ctx, io_ctx_t *io);
+	io_ctx_t *(*get_io_ctx)(io_bench_thr_ctx_t *ctx, uint16_t slot);
+	uint64_t target_usec_latency;
 	int queue_size;
 	const int *fds;
 	unsigned int fd_count;

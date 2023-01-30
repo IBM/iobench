@@ -68,6 +68,7 @@ typedef struct {
 
 typedef struct {
 	dio_ioctx_t *ioctx;
+	uint64_t target_usec_lat;
 	pthread_t self;
 	int *fds;
 	int lba_size_bits;
@@ -158,11 +159,35 @@ static void *thread_func_dio(void *arg)
 		pthread_cond_wait(&ctx->run_cond, &ctx->run_mutex);
 	pthread_mutex_unlock(&ctx->run_mutex);
 
+	ioctx->slack = 0;
+	ioctx->start_stamp = get_uptime_us();
+
 	while (1) {
 		int fd = (pctx->rr) ? pctx->fds[ioctx->dev_idx] : ctx->fd;
+		uint64_t stamp = ioctx->start_stamp;
 		rc = (!ioctx->write) ? pread(fd, ioctx->buf, bs, ioctx->offset) : pwrite(fd, ioctx->buf, bs, ioctx->offset);
 		ioctx->status = (rc == bs) ? 0 : SET_ERR(rc);
 		io_bench_complete_and_prep_io(thr_ctx, ioctx);
+		if (pctx->target_usec_lat) {
+			uint64_t now = get_uptime_us();
+			uint64_t delta = now - stamp;
+			if (delta < pctx->target_usec_lat) {
+				delta = pctx->target_usec_lat - delta;
+				if (delta > ioctx->slack) {
+					delta -= ioctx->slack;
+					ioctx->slack = 0;
+					stamp = now + delta;
+					usleep(delta);
+					now = get_uptime_us();
+					ioctx->slack = (now > stamp) ? now - stamp : 0;
+					ioctx->start_stamp = now;
+				} else {
+					ioctx->slack -= delta;
+				}
+			} else {
+				ioctx->slack += (delta - pctx->target_usec_lat);
+			}
+		}
 	}
 	return NULL;
 }
@@ -186,8 +211,12 @@ static void *thread_func_nvme(void *arg)
 		pthread_cond_wait(&ctx->run_cond, &ctx->run_mutex);
 	pthread_mutex_unlock(&ctx->run_mutex);
 
+	ioctx->start_stamp = get_uptime_us();
+	ioctx->slack = 0;
+
 	while (1) {
 		int fd = (pctx->rr) ? pctx->fds[ioctx->dev_idx] : ctx->fd;
+		uint64_t stamp = ioctx->start_stamp;
 		struct nvme_user_io nvme_io = {
 			.opcode = !ioctx->write ? NVME_CMD_READ : NVME_CMD_WRITE,
 			.nblocks = bs,
@@ -197,6 +226,26 @@ static void *thread_func_nvme(void *arg)
 		rc = ioctl(fd, NVME_IOCTL_SUBMIT_IO, &nvme_io);
 		ioctx->status = (rc == 0) ? 0 : SET_ERR(rc);
 		io_bench_complete_and_prep_io(thr_ctx, ioctx);
+		if (pctx->target_usec_lat) {
+			uint64_t now = get_uptime_us();
+			uint64_t delta = now - stamp;
+			if (delta < pctx->target_usec_lat) {
+				delta = pctx->target_usec_lat - delta;
+				if (delta > ioctx->slack) {
+					delta -= ioctx->slack;
+					ioctx->slack = 0;
+					stamp = now + delta;
+					usleep(delta);
+					now = get_uptime_us();
+					ioctx->slack = (now > stamp) ? now - stamp : 0;
+					ioctx->start_stamp = now;
+				} else {
+					ioctx->slack -= delta;
+				}
+			} else {
+				ioctx->slack += (delta - pctx->target_usec_lat);
+			}
+		}
 	}
 	return NULL;
 }
@@ -257,6 +306,7 @@ static int dio_init_thread_ctx(io_bench_thr_ctx_t **pctx, io_bench_params_t *par
 		return -ENOMEM;
 	}
 
+	dio_thr_ctx->target_usec_lat = 1000000.0 / ((params->kiops * 1000)/(params->threads *params->qs));
 	dio_thr_ctx->self = pthread_self();
 	dio_thr_ctx->qs = params->qs;
 	dio_thr_ctx->bs = params->bs;

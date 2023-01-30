@@ -197,7 +197,7 @@ static void print_final_process_stats(void)
 	update_process_io_stats(get_uptime_us(), true);
 }
 
-static void update_io_stats(io_bench_thr_ctx_t *ctx, io_ctx_t *io, uint64_t stamp)
+void update_io_stats(io_bench_thr_ctx_t *ctx, io_ctx_t *io, uint64_t stamp)
 {
 	uint64_t lat = stamp - io->start_stamp;
 	io_bench_stats_t *stat = (!io->write) ? &ctx->read_stats : &ctx->write_stats;
@@ -382,7 +382,6 @@ int io_bench_requeue_io(io_bench_thr_ctx_t *ctx, io_ctx_t *io)
 {
 	uint64_t stamp = get_uptime_us();
 	int rc;
-	update_io_stats(ctx, io, stamp);
 	if (unlikely(io->status)) {
 		ERROR("IO to offset %lu, device %s fails with code %d", io->offset, init_params.devices[io->dev_idx], io->status);
 		if (init_params.fail_on_err) {
@@ -657,7 +656,7 @@ int main(int argc, char *argv[])
 		case ENGINE_DIO: io_eng = &dio_engine; break;
 		case ENGINE_SG_AIO: io_eng = &sg_aio_engine; break;
 		case ENGINE_SG_URING: io_eng = &sg_uring_engine; break;
-		case ENGINE_NVNE: io_eng = &nvme_engine; break;
+		case ENGINE_NVME: io_eng = &nvme_engine; break;
 		default: ERROR("Unsupported IO engine"); exit(1); break;
 	}
 	rc = start_threads();
