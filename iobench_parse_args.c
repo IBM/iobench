@@ -22,7 +22,7 @@ DECLARE_BFN
 do { \
 	ERROR("Use as %s [-bs block_size] [-qs queue_size]  [-fail-on-err] [-seq] [-mlock] [-rr [-threads n] |-pass-once] [-hit-size value] [-pf pattern_file] [-t run_time_sec] " \
 	"[-numa |-cpuset set | -remap-numa numa@numa_list[:numa@numa_list]...] [-poll-idle-kernel-ms value] [-poll-idle-user-ms value] [-poll-kcpu-offset val] " \
-	"[-threads-per-dev] [-write | -wp value] [ -engine aio|aio_linux|uring|sg_aio|sg_uring|nvme|dio ] [-kops kiops] dev_list]", prog_name); \
+	"[-threads-per-dev] [-write | -wp value] [ -engine aio|aio_linux|uring|sg_aio|sg_uring|nvme|dio ] [-kiops kiops] dev_list]", prog_name); \
 	return -1; \
 } while(0)
 

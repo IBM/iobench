@@ -354,7 +354,7 @@ static void prep_one_io(io_bench_thr_ctx_t *ctx, io_ctx_t *io, uint64_t stamp, b
 	io->offset = choose_random_offset(ctx, io, atomic);
 	io->offset += global_ctx.dev_ctx_array[io->dev_idx].base_offset;
 	if (unlikely(global_ctx.pf_map && io->write))
-		update_pf_offset(global_ctx.ctx_array[io->dev_idx], io, atomic || init_params.rr);
+		update_pf_offset(global_ctx.ctx_array[ctx->thr_idx], io, atomic);
 	else if (!io_eng->need_mr_buffers)
 		io->buf = global_ctx.ctx_array[ctx->thr_idx]->buf_head + init_params.bs * io->slot_idx;
 
