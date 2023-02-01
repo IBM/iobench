@@ -56,6 +56,7 @@ typedef struct {
 	unsigned int threads_per_dev;
 	unsigned int ndevs;
 	unsigned int threads;
+	unsigned int max_dev_lease_usec;
 	bool use_numa;
 	double kiops;
 	char *cpuset;
@@ -75,6 +76,10 @@ typedef struct {
 	io_bench_stats_t read_stats;
 	unsigned int seed;
 	uint16_t thr_idx;
+	uint16_t rr_dev_sel;
+	uint64_t rr_dev_sel_stamp;
+	uint16_t rr_dev_off;
+	uint16_t max_rr_devs;
 } io_bench_thr_ctx_t;
 
 typedef struct {

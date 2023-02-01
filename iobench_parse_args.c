@@ -22,7 +22,7 @@ DECLARE_BFN
 do { \
 	ERROR("Use as %s [-bs block_size] [-qs queue_size]  [-fail-on-err] [-seq] [-mlock] [-rr [-threads n] |-pass-once] [-hit-size value] [-pf pattern_file] [-t run_time_sec] " \
 	"[-numa |-cpuset set | -remap-numa numa@numa_list[:numa@numa_list]...] [-poll-idle-kernel-ms value] [-poll-idle-user-ms value] [-poll-kcpu-offset val] " \
-	"[-threads-per-dev] [-write | -wp value] [ -engine aio|aio_linux|uring|sg_aio|sg_uring|nvme|dio ] [-kiops kiops] dev_list]", prog_name); \
+	"[-threads-per-dev] [-write | -wp value] [ -engine aio|aio_linux|uring|sg_aio|sg_uring|nvme|dio ] [-kiops kiops] [-max-lease-ms val] dev_list]", prog_name); \
 	return -1; \
 } while(0)
 
@@ -104,6 +104,10 @@ int io_bench_parse_args(int argc, char **argv, io_bench_params_t *params)
 		} else if (!strcmp(argv[0], "-kiops")) {
 			if (params->kiops || argc == 1 || sscanf(argv[1], "%lf", &params->kiops) != 1)
 				usage();
+		} else if (!strcmp(argv[0], "-max-lease-ms")) {
+			if (params->max_dev_lease_usec || argc == 1 || sscanf(argv[1], "%u", &params->max_dev_lease_usec) != 1)
+				usage();
+			params->max_dev_lease_usec *= 1000;
 		} else if (!strcmp(argv[0], "-fail-on-err")) {
 			if (params->fail_on_err)
 				usage();
@@ -194,18 +198,22 @@ int io_bench_parse_args(int argc, char **argv, io_bench_params_t *params)
 		ERROR("iobench: -threads parameter is valid with -rr only");
 		usage();
 	}
+
+	if (!params->threads_per_dev)
+		params->threads_per_dev = 1;
+
 	if (params->threads && params->threads_per_dev != 1) {
 		ERROR("iobench: -threads and -threads-per-dev are mutually exclusive");
 		usage();
 	}
+
 	if (!params->threads)
 		params->threads = params->ndevs;
 	else if(params->threads > params->ndevs) {
 		WARN("iobench: -threads cannot be larger than number of devices; decreasing to %u", params->ndevs);
 		params->threads = params->ndevs;
 	}
-	if (!params->threads_per_dev)
-		params->threads_per_dev = 1;
+
 	if (params->threads_per_dev != 1) {
 		unsigned int n = params->ndevs * params->threads_per_dev;
 		unsigned int i;
@@ -221,6 +229,7 @@ int io_bench_parse_args(int argc, char **argv, io_bench_params_t *params)
 		}
 		params->devices = devs;
 		params->ndevs = n;
+		params->threads = n;
 	}
 	return 0;
 }

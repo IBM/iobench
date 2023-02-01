@@ -314,10 +314,36 @@ static inline bool is_write_io(unsigned int *seed)
 	return  (val < init_params.wp);
 }
 
+static void init_thread_dev_selection(io_bench_thr_ctx_t *thread_ctx)
+{
+	if (init_params.ndevs > init_params.threads) {
+		uint16_t max_dev;
+		uint16_t off = max_dev = init_params.ndevs / init_params.threads;
+		uint16_t tail = init_params.ndevs % init_params.threads;
+		off *= thread_ctx->thr_idx;
+		if (tail) {
+			off += (thread_ctx->thr_idx < tail) ? thread_ctx->thr_idx : tail;
+			if (thread_ctx->thr_idx < tail)
+				max_dev++;
+		}
+		thread_ctx->rr_dev_off = off;
+		thread_ctx->max_rr_devs = max_dev;
+	} else {
+		thread_ctx->rr_dev_off = 0;
+		thread_ctx->max_rr_devs = init_params.ndevs;
+	}
+	thread_ctx->rr_dev_sel = thread_ctx->rr_dev_off + ((double)rand_r(&thread_ctx->seed) * thread_ctx->max_rr_devs) / ((unsigned int)RAND_MAX + 1);
+	thread_ctx->rr_dev_sel_stamp = get_uptime_us();
+}
+
 static inline unsigned int choose_dev_idx(io_bench_thr_ctx_t *thread_ctx)
 {
-	unsigned int res = ((double)rand_r(&thread_ctx->seed) * init_params.ndevs) / ((unsigned int)RAND_MAX + 1);
-	return res;
+	uint64_t now = thread_ctx->rr_dev_sel_stamp;
+	if (!init_params.max_dev_lease_usec || (now = get_uptime_us()) >= (thread_ctx->rr_dev_sel_stamp + init_params.max_dev_lease_usec)) {
+		thread_ctx->rr_dev_sel = thread_ctx->rr_dev_off + ((double)rand_r(&thread_ctx->seed) * thread_ctx->max_rr_devs) / ((unsigned int)RAND_MAX + 1);
+		thread_ctx->rr_dev_sel_stamp = now;
+	}
+	return thread_ctx->rr_dev_sel;
 }
 
 static void update_pf_offset(io_bench_thr_ctx_t *thread_ctx, io_ctx_t *io, bool atomic)
@@ -507,6 +533,7 @@ static void *thread_func(void *arg)
 
 	reset_latencies(&global_ctx.ctx_array[idx]->read_stats);
 	reset_latencies(&global_ctx.ctx_array[idx]->write_stats);
+	init_thread_dev_selection(global_ctx.ctx_array[idx]);
 
 	for (i = 0; i < init_params.qs; i++) {
 		io_ctx_t *io_ctx = io_eng->get_io_ctx(global_ctx.ctx_array[idx], i);
