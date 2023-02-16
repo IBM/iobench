@@ -43,6 +43,7 @@ typedef struct {
 	uint16_t poll_idle_kernel_ms;
 	uint16_t poll_idle_user_ms;
 	uint16_t poll_kcpu_offset;
+	uint32_t delay_sec;
 	bool fail_on_err;
 	bool seq;
 	bool rr;

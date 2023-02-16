@@ -39,6 +39,7 @@ struct {
 	uint64_t pf_size;
 	uint64_t int_start;
 	uint64_t start;
+	uint64_t reset_stats_stamp;
 	io_bench_dev_ctx_t *dev_ctx_array;
 	io_bench_thr_ctx_t **ctx_array;
 	pthread_t *threads;
@@ -123,6 +124,22 @@ static char *time_prefix(char *buf, size_t len)
 	return buf;
 }
 
+static void reset_global_stats(uint64_t stamp)
+{
+	uint32_t i;
+	memset(&global_ctx.read_stats, 0, sizeof(global_ctx.read_stats));
+	memset(&global_ctx.write_stats, 0, sizeof(global_ctx.write_stats));
+	global_ctx.read_stats.min_lat = global_ctx.write_stats.min_lat = -1ULL;
+	global_ctx.start = global_ctx.int_start = stamp;
+	global_ctx.reset_stats_stamp = -1UL;
+	for (i = 0; i < init_params.threads; i++) {
+		global_ctx.ctx_array[i]->read_stats.iops = 0;
+		global_ctx.ctx_array[i]->write_stats.iops = 0;
+		reset_latencies(&global_ctx.ctx_array[i]->read_stats);
+		reset_latencies(&global_ctx.ctx_array[i]->write_stats);
+	}
+}
+
 static void update_process_io_stats(uint64_t stamp, bool final)
 {
 	io_bench_stats_t read_stats = { 0 };
@@ -189,6 +206,8 @@ static void update_process_io_stats(uint64_t stamp, bool final)
 			((double)global_ctx.read_stats.lat) / SAFE_DELTA(global_ctx.read_stats.iops, 0), global_ctx.read_stats.min_lat, global_ctx.read_stats.max_lat,
 			((double)global_ctx.write_stats.lat) / SAFE_DELTA(global_ctx.write_stats.iops, 0), global_ctx.write_stats.min_lat, global_ctx.write_stats.max_lat);
 	}
+	if (global_ctx.reset_stats_stamp < stamp)
+		reset_global_stats(stamp);
 }
 
 
@@ -650,6 +669,7 @@ static int start_threads(void)
 	pthread_mutex_lock(&global_ctx.run_mutex);
 	global_ctx.read_stats.min_lat = global_ctx.write_stats.min_lat = -1ULL;
 	global_ctx.start = global_ctx.int_start = get_uptime_us();
+	global_ctx.reset_stats_stamp = (init_params.delay_sec != -1U) ? (global_ctx.int_start + init_params.delay_sec * 1000000 ) : -1UL;
 	global_ctx.may_run = true;
 	pthread_cond_broadcast(&global_ctx.run_cond);
 	pthread_mutex_unlock(&global_ctx.run_mutex);

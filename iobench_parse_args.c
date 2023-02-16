@@ -20,7 +20,7 @@ DECLARE_BFN
 
 #define usage() \
 do { \
-	ERROR("Use as %s [-bs block_size] [-qs queue_size]  [-fail-on-err] [-seq] [-mlock] [-rr [-threads n] |-pass-once] [-hit-size value] [-pf pattern_file] [-t run_time_sec] " \
+	ERROR("Use as %s [-bs block_size] [-qs queue_size]  [-fail-on-err] [-seq] [-mlock] [-rr [-threads n] |-pass-once] [-hit-size value] [-pf pattern_file] [-t run_time_sec] [-delay seconds]" \
 	"[-numa |-cpuset set | -remap-numa numa@numa_list[:numa@numa_list]...] [-poll-idle-kernel-ms value] [-poll-idle-user-ms value] [-poll-kcpu-offset val] " \
 	"[-threads-per-dev] [-write | -wp value] [ -engine aio|aio_linux|uring|sg_aio|sg_uring|nvme|dio ] [-kiops kiops] [-max-lease-ms val] dev_list]", prog_name); \
 	return -1; \
@@ -57,6 +57,9 @@ int io_bench_parse_args(int argc, char **argv, io_bench_params_t *params)
 				usage();
 		} else if (!strcmp(argv[0], "-t")) {
 			if (params->run_time || argc == 1 || sscanf(argv[1], "%u", &params->run_time) != 1)
+				usage();
+		} else if (!strcmp(argv[0], "-delay")) {
+			if (params->delay_sec  || argc == 1 || sscanf(argv[1], "%u", &params->delay_sec) != 1)
 				usage();
 		} else if (!strcmp(argv[0], "-poll-idle-kernel-ms")) {
 			if (params->poll_idle_kernel_ms || argc == 1 || sscanf(argv[1], "%hu", &params->poll_idle_kernel_ms) != 1)
@@ -166,6 +169,8 @@ int io_bench_parse_args(int argc, char **argv, io_bench_params_t *params)
 		argc -= dec;
 		argv += dec;
 	}
+	if (!params->delay_sec)
+		params->delay_sec = -1U;
 	if (!params->devices)
 		usage();
 	if (!params->bs)
