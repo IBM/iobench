@@ -27,6 +27,7 @@ DECLARE_BFN
 #include <signal.h>
 #include <errno.h>
 #include <sys/time.h>
+#include <termios.h>
 
 #define SLEEP_INT_MS (2500)
 #define PROGRESS_INT_US (10000000)
@@ -50,6 +51,7 @@ struct {
 	pthread_cond_t init_cond;
 	pthread_cond_t run_cond;
 	unsigned int done_init;
+	int tty;
 	bool may_run;
 	bool failed;
 	bool exiting;
@@ -58,10 +60,52 @@ struct {
 	.run_mutex = PTHREAD_MUTEX_INITIALIZER,
 	.init_cond = PTHREAD_COND_INITIALIZER,
 	.run_cond = PTHREAD_COND_INITIALIZER,
+	.tty = -1,
 };
 
 static io_bench_params_t init_params;
 static io_eng_def_t *io_eng = NULL;
+
+static void disable_tty_echo(void)
+{
+	char *name = ttyname(0);
+	char *name1 = ttyname(2);
+	struct termios tos;
+
+	if (!name || !name1)
+		return;
+	if (name != name1 && strcmp(name, name1))
+		return;
+	global_ctx.tty = open(name, O_RDWR);
+	if (global_ctx.tty < 0)
+		return;
+	if (tcgetattr(global_ctx.tty, &tos)) {
+		ERROR("Failed to get tty settings");
+		close(global_ctx.tty);
+		global_ctx.tty = -1;
+		return;
+	}
+	tos.c_lflag &= ~(ECHO);
+	if(tcsetattr(global_ctx.tty, TCSANOW, &tos)) {
+		ERROR("Failed to set tty settings");
+		close(global_ctx.tty);
+		global_ctx.tty = -1;
+		return;
+	}
+}
+
+static void enable_tty_echo(void)
+{
+	struct termios tos;
+	if (tcgetattr(global_ctx.tty, &tos)) {
+		ERROR("Failed to get tty settings");
+		return;
+	}
+	tos.c_lflag |= (ECHO);
+	if(tcsetattr(global_ctx.tty, TCSANOW, &tos))
+		ERROR("Failed to set tty settings");
+	return;
+}
 
 static void kill_all_threads(void)
 {
@@ -337,6 +381,7 @@ static void term_handler(int signo)
 		pthread_exit(NULL);
 	}
 	global_ctx.exiting = true;
+	enable_tty_echo();
 	kill_all_threads();
 	if (global_ctx.may_run)
 		print_final_process_stats();
@@ -699,6 +744,7 @@ static int start_threads(void)
 		return -1;
 	}
 
+	disable_tty_echo();
 	global_ctx.main_thread = pthread_self();
 	global_ctx.dev_ctx_array = calloc(init_params.ndevs, sizeof(global_ctx.dev_ctx_array[0]));
 	global_ctx.ctx_array = calloc(init_params.threads, sizeof(global_ctx.ctx_array[0]));
@@ -730,6 +776,7 @@ static int start_threads(void)
 			global_ctx.threads[i] = 0;
 			ERROR("Cannot create thread %u", i);
 			global_ctx.exiting = true;
+			enable_tty_echo();
 			kill_all_threads();
 			join_all_threads();
 			exit(1);
@@ -757,6 +804,7 @@ static int start_threads(void)
 		update_process_io_stats(stamp, false);
 	}
 	global_ctx.exiting = true;
+	enable_tty_echo();
 	kill_all_threads();
 	print_final_process_stats();
 	join_all_threads();
