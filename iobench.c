@@ -52,6 +52,7 @@ struct {
 	unsigned int done_init;
 	bool may_run;
 	bool failed;
+	bool exiting;
 } global_ctx = {
 	.init_mutex = PTHREAD_MUTEX_INITIALIZER,
 	.run_mutex = PTHREAD_MUTEX_INITIALIZER,
@@ -137,6 +138,57 @@ static void reset_global_stats(uint64_t stamp)
 		global_ctx.ctx_array[i]->write_stats.iops = 0;
 		reset_latencies(&global_ctx.ctx_array[i]->read_stats);
 		reset_latencies(&global_ctx.ctx_array[i]->write_stats);
+		memset(global_ctx.ctx_array[i]->read_lat_hyst, 0, sizeof(global_ctx.ctx_array[i]->read_lat_hyst));
+		memset(global_ctx.ctx_array[i]->write_lat_hyst, 0, sizeof(global_ctx.ctx_array[i]->write_lat_hyst));
+	}
+}
+
+static void print_hysteresis_stats(uint64_t *array)
+{
+	unsigned int i;
+	uint64_t total = 0;
+	double ratio;
+	double total_ratio = 0;
+	uint64_t val;
+
+	for (i = 0; i < MAX_HYSTERESIS_STATS; i++)
+		total += array[i];
+	for (i = 0; i < MAX_HYSTERESIS_STATS-1; i++) {
+		val = i;
+		val <<= 6;
+		ratio = 100.0 * array[i] / total;
+		total_ratio += ratio;
+		if (val)
+			INFO_NOPFX("%lu-%lu: %.2lf%% (%.2lf%%)", val, val + 63, ratio, total_ratio);
+		if (ratio < 0.005 && total_ratio >= 99.995)
+			return;
+	}
+	val = MAX_HYSTERESIS_STATS-1;
+	val <<= 6;
+	ratio = 100.0 * array[MAX_HYSTERESIS_STATS-1] / total;
+	INFO_NOPFX("%lu-max: %.2lf%%", val, ratio);
+}
+
+static void print_latency_hysteresis(void)
+{
+	uint64_t read_vals[MAX_HYSTERESIS_STATS] = { 0 };
+	uint64_t write_vals[MAX_HYSTERESIS_STATS] = { 0 };
+	unsigned int i;
+	unsigned int j;
+
+	for (i = 0; i < init_params.threads; i++) {
+		for (j = 0; j < MAX_HYSTERESIS_STATS; j++) {
+			read_vals[j] += global_ctx.ctx_array[i]->read_lat_hyst[j];
+			write_vals[j] += global_ctx.ctx_array[i]->write_lat_hyst[j];
+		}
+	}
+	if (init_params.wp != 100) {
+		INFO_NOPFX("Read latency hysteresis:");
+		print_hysteresis_stats(read_vals);
+	}
+	if (init_params.wp) {
+		INFO_NOPFX("Write latency hysteresis:");
+		print_hysteresis_stats(write_vals);
 	}
 }
 
@@ -206,6 +258,8 @@ static void update_process_io_stats(uint64_t stamp, bool final)
 			((double)global_ctx.read_stats.lat) / SAFE_DELTA(global_ctx.read_stats.iops, 0), global_ctx.read_stats.min_lat, global_ctx.read_stats.max_lat,
 			((double)global_ctx.write_stats.lat) / SAFE_DELTA(global_ctx.write_stats.iops, 0), global_ctx.write_stats.min_lat, global_ctx.write_stats.max_lat);
 	}
+	if (final)
+		print_latency_hysteresis();
 	if (global_ctx.reset_stats_stamp < stamp)
 		reset_global_stats(stamp);
 }
@@ -219,6 +273,10 @@ static void print_final_process_stats(void)
 void update_io_stats(io_bench_thr_ctx_t *ctx, io_ctx_t *io, uint64_t stamp)
 {
 	uint64_t lat = stamp - io->start_stamp;
+	uint64_t index = lat >> 6;
+
+	if (index >= MAX_HYSTERESIS_STATS)
+		index = MAX_HYSTERESIS_STATS-1;
 	io_bench_stats_t *stat = (!io->write) ? &ctx->read_stats : &ctx->write_stats;
 	if (lat < stat->min_lat)
 		stat->min_lat = lat;
@@ -226,6 +284,10 @@ void update_io_stats(io_bench_thr_ctx_t *ctx, io_ctx_t *io, uint64_t stamp)
 		stat->max_lat = lat;
 	stat->lat += lat;
 	stat->iops++;
+	if (!io->write)
+		ctx->read_lat_hyst[index]++;
+	else
+		ctx->write_lat_hyst[index]++;
 }
 
 static void update_io_stats_atomic(io_bench_thr_ctx_t *ctx, io_ctx_t *io, uint64_t stamp)
@@ -234,6 +296,11 @@ static void update_io_stats_atomic(io_bench_thr_ctx_t *ctx, io_ctx_t *io, uint64
 	io_bench_stats_t *stat = (!io->write) ? &ctx->read_stats : &ctx->write_stats;
 	uint64_t cur_min = stat->min_lat;
 	uint64_t cur_max = stat->max_lat;
+	uint64_t index = lat << 6;
+
+	if (index >= MAX_HYSTERESIS_STATS)
+		index = MAX_HYSTERESIS_STATS-1;
+
 	while (lat < cur_min) {
 		if (__sync_bool_compare_and_swap(&stat->min_lat, cur_min, lat))
 			break;
@@ -246,6 +313,10 @@ static void update_io_stats_atomic(io_bench_thr_ctx_t *ctx, io_ctx_t *io, uint64
 	}
 	__sync_fetch_and_add(&stat->lat, lat);
 	__sync_fetch_and_add(&stat->iops, 1);
+	if (!io->write)
+		__sync_fetch_and_add(ctx->read_lat_hyst, 1);
+	else
+		__sync_fetch_and_add(ctx->write_lat_hyst, 1);
 }
 
 static void term_handler(int signo)
@@ -253,7 +324,8 @@ static void term_handler(int signo)
 	unsigned int i;
 	if (pthread_self() != global_ctx.main_thread) {
 		unsigned int i;
-		pthread_kill(global_ctx.main_thread, SIGTERM);
+		if (__sync_bool_compare_and_swap(&global_ctx.exiting, false, true))
+			pthread_kill(global_ctx.main_thread, SIGTERM);
 		if (io_eng->stop_thread_ctx) {
 			for (i = 0; i < init_params.threads; i++) {
 				if (global_ctx.threads[i] == pthread_self()) {
@@ -264,6 +336,7 @@ static void term_handler(int signo)
 		}
 		pthread_exit(NULL);
 	}
+	global_ctx.exiting = true;
 	kill_all_threads();
 	if (global_ctx.may_run)
 		print_final_process_stats();
@@ -656,6 +729,7 @@ static int start_threads(void)
 		if (pthread_create(&global_ctx.threads[i], NULL, thread_func, (void *)val)) {
 			global_ctx.threads[i] = 0;
 			ERROR("Cannot create thread %u", i);
+			global_ctx.exiting = true;
 			kill_all_threads();
 			join_all_threads();
 			exit(1);
@@ -682,6 +756,7 @@ static int start_threads(void)
 		stamp = get_uptime_us();
 		update_process_io_stats(stamp, false);
 	}
+	global_ctx.exiting = true;
 	kill_all_threads();
 	print_final_process_stats();
 	join_all_threads();

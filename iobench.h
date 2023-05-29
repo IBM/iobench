@@ -17,6 +17,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#define MAX_HYSTERESIS_STATS (64)
+
 typedef enum {
 	ENGINE_AIO,
 	ENGINE_AIO_LINUX,
@@ -75,6 +77,8 @@ typedef struct {
 	uint64_t pf_offset;
 	io_bench_stats_t write_stats;
 	io_bench_stats_t read_stats;
+	uint64_t read_lat_hyst[MAX_HYSTERESIS_STATS];
+	uint64_t write_lat_hyst[MAX_HYSTERESIS_STATS];
 	unsigned int seed;
 	uint16_t thr_idx;
 	uint16_t rr_dev_sel;
