@@ -1,6 +1,58 @@
 #!/bin/bash
 
-if [ "$(hostname)" != iota ]; then
+# This script can be used to define test parameters (like qs vs bs)
+# by allowing manual run of iobench tool on multiple hosts and 
+# observing results
+
+# Also, a quick single workload can be manually run
+
+# Instructions:
+# * Must be run as root (iobench requires root permissions)
+# * Update HOSTS list
+# * First list in the host is "master", other are "clients"
+# * On all hostts, create run_iobench in the home directory (typically /root)
+# * Copy this script (vrun) to run_iobench directory on all hosts
+# * Copy iobench binary to run_iobench directory on master host
+# * Open multiple terminals/tabs/split terminals to all hosts
+# * In all terminals, change directory to ~/run_iobench
+# * Run "./vrun" on all clients (in the opened terminals)
+# * Run "./vrun ./iobench [parameters...]" on the master host (in the previously opened termimal)
+# * Each terminal will run iobench with the same parameters and will report results
+# * Pressing "CNTRL-C" in the master terminal will stop iobench in all other terminals
+# * Running another instance of "./vrun ./iobench ..." will run iobench again on all hosts
+
+HOSTS="host1 host2 host3"
+ME="$(hostname -s)"
+MASTER=$(echo ${HOSTS} | awk '{print $1}')
+
+
+if [ "$(echo ${HOSTS} | grep -w ${ME})" = "" ]; then
+	echo "HOSTS lists does not contain this host ($(hostname -s))" >&2
+	exit 1
+fi
+
+HOSTS=$(echo ${HOSTS} | tr ' ' '\n' | grep -v -E "^${MASTER}$" | tr '\n' ' ')
+
+function kill_tests()
+{
+	local h=""
+	if [ "${ME}" != "${MASTER}" ]; then
+                exit 1
+        fi
+	for h in ${HOSTS}
+	do
+        	ssh $h killall iobench
+	done
+}
+
+trap kill_tests SIGINT
+trap kill_tests SIGTERM
+
+if [ "${ME}" != "${MASTER}" ]; then
+	if [ $# -ne 0 ]; then
+		echo "Non-master nodes shall not set arguments" >&2
+		exit 1
+	fi
 	while [ 1 ]
 	do
 		while [ ! -e "${HOME}/.vrun_lock" ]
@@ -13,13 +65,13 @@ if [ "$(hostname)" != iota ]; then
 	exit 1
 fi
 rm -f "${HOME}/run_iobench/script"
-ssh sigma rm -f "${HOME}/run_iobench/script"
-ssh zeta rm -f "${HOME}/run_iobench/script"
 echo $@ > "${HOME}/run_iobench/script"
 chmod +x "${HOME}/run_iobench/script"
-scp -p "${HOME}/run_iobench/script" "${HOME}/run_iobench/iobench" zeta:"${HOME}/run_iobench"
-scp -p "${HOME}/run_iobench/script" "${HOME}/run_iobench/iobench" sigma:/"${HOME}/run_iobench"
-ssh sigma touch "${HOME}/.vrun_lock"
-ssh zeta touch "${HOME}/.vrun_lock"
+for h in ${HOSTS}
+do
+	ssh $h rm -f "${HOME}/run_iobench/script"
+	scp -p "${HOME}/run_iobench/script" "${HOME}/run_iobench/iobench" $h:"${HOME}/run_iobench"
+	ssh $h touch "${HOME}/.vrun_lock"
+done
 "${HOME}/run_iobench/script"
 

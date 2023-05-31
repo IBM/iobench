@@ -220,6 +220,8 @@ static void print_latency_hysteresis(void)
 	unsigned int i;
 	unsigned int j;
 
+	if (!init_params.print_hyst)
+		return;
 	for (i = 0; i < init_params.threads; i++) {
 		for (j = 0; j < MAX_HYSTERESIS_STATS; j++) {
 			read_vals[j] += global_ctx.ctx_array[i]->read_lat_hyst[j];

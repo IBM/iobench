@@ -61,6 +61,7 @@ typedef struct {
 	unsigned int threads;
 	unsigned int max_dev_lease_usec;
 	bool use_numa;
+	bool print_hyst;
 	double kiops;
 	char *cpuset;
 	char *remap_numa;

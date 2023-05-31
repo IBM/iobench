@@ -22,7 +22,7 @@ DECLARE_BFN
 do { \
 	ERROR("Use as %s [-bs block_size] [-qs queue_size]  [-fail-on-err] [-seq] [-mlock] [-rr [-threads n] |-pass-once] [-hit-size value] [-pf pattern_file] [-t run_time_sec] [-delay seconds]" \
 	"[-numa |-cpuset set | -remap-numa numa@numa_list[:numa@numa_list]...] [-poll-idle-kernel-ms value] [-poll-idle-user-ms value] [-poll-kcpu-offset val] " \
-	"[-threads-per-dev] [-write | -wp value] [ -engine aio|aio_linux|uring|sg_aio|sg_uring|nvme|dio ] [-kiops kiops] [-max-lease-ms val] dev_list]", prog_name); \
+	"[-threads-per-dev] [-write | -wp value] [-print-hyst] [ -engine aio|aio_linux|uring|sg_aio|sg_uring|nvme|dio ] [-kiops kiops] [-max-lease-ms val] dev_list]", prog_name); \
 	return -1; \
 } while(0)
 
@@ -127,6 +127,11 @@ int io_bench_parse_args(int argc, char **argv, io_bench_params_t *params)
 			if (params->wp)
 				usage();
 			params->wp = 100; dec = 1;
+		} else if (!strcmp(argv[0], "-print-hyst")) {
+			if (params->print_hyst)
+				usage();
+			params->print_hyst = true;
+			dec = 1;
 		} else if (!strcmp(argv[0], "-numa")) {
 			if (params->use_numa || params->cpuset)
 				usage();

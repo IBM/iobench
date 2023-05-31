@@ -1,0 +1,57 @@
+# test_profile
+
+HOSTS="host1 host2 host3"
+PATTERN_FILE=/perf_tool/patterns/8MB.65p #this is an non-mandatory override (default set in run_io_tests.sh)"
+TEST_DURATION=60 #this is an non-mandatory override (default set in run_io_tests.sh)"
+
+function choose_qs()
+{
+	if [ "${IS_WRITE}" = 0 ]; then
+		if [ "${IS_MISS}" = 0 ]; then
+			case $1 in
+				256K|128K|64K) echo "-qs 128";;
+				32K) echo "-qs 128";;
+				*) echo "-qs 128";;
+			esac
+		else
+			case $1 in
+				256K|128K|64K) echo "-qs 128";;
+				32K) echo "-qs 128";;
+				*) echo "-qs 128";;
+			esac
+		fi
+	else
+		if [ "${IS_SEQ}" = 0 ]; then
+			case $1 in
+				256K|128K|64K|32K) echo "-qs 5";;
+				*) echo "-qs 6";;
+			esac
+		else
+			case $1 in
+				256K|128K|64K|32K) echo "-qs 5";;
+				*) echo "-qs 8";;
+			esac
+		fi
+	fi
+}
+
+function choose_numa()
+{
+	if [ "${FORCE_NUMA}" = "nonuma" ]; then
+		echo ""
+		return 0
+	elif [  "${FORCE_NUMA}" = "numa" ]; then
+		echo "-numa"
+		return 0
+	fi
+	if [ "${IS_WRITE}" != 0 ]; then
+		echo "-cpuset 0-31"
+		return 0
+	fi
+
+	case $1 in
+		64K|128K|256K) echo "-numa";;
+		*) echo "-cpuset 0-31";;
+	esac
+}
+
