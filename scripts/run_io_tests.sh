@@ -19,6 +19,7 @@
 # * optional: change single test duration by updating TEST_DURATION variable (default is 60 seconds for each test)
 # * optional: change PATTERN_FILE variable (used for write tests only, /perf_tool/patterns/8MB.65p)
 #    * pattetn file must be present on all hosts
+# * update DEVICES list to specify the host devices
 # make sure that master host can ssh other hosts without a password
 # on master host, create run_iobench directory in the home directory (typically /root)
 # copy test_profile, run_io_tests.sh iobench and run_io_bench files to the created directory
@@ -192,7 +193,7 @@ function run_test()
 		QS="$(choose_qs ${BS})"
 	fi
 	args="${args} -bs ${BS} ${QS} ${PF} $(choose_numa ${BS})"
-	args="$(echo ${args} ${extra_args} | sed -e 's/  *$//')"
+	args="$(echo ${args} ${extra_args} ${DEVICES} | sed -e 's/  *$//')"
 	rm -f  ~/.io_bench_params
 	echo "args=\"${args}\"" >  ~/.io_bench_params
 	echo -n "$TST: "
