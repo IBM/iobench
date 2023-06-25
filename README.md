@@ -1,2 +1,1 @@
-# iobench
-IO bench is an IO benchmark tool that can do direct IO on SCSI, NVMe and block devices
+IOBENCH is a IO meter tool (IO benchmark). It supports several IO engines (blocked IO, Linux asynchronous IO, POSIX AIO, direct SCSI, direct NVMe, IO URING, etc.). It can measure latency, IOPs and bandwidth for one or many devices using read, write or mixed workloads, with random or sequential access and hit or miss patterns. This tool can be used to benchmark storage systems or investigate issues with storage protocols or local devices. IOBENCH can measure ultimate performance and scales to many devices, CPUs, and fast interconnects.
